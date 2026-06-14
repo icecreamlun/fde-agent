@@ -1390,6 +1390,16 @@ h4 {
   padding: 8px 2px 18px;
 }
 
+.sticky-workflow-graph {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: -2px -2px 0;
+  padding: 18px 2px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
 .workflow-graph {
   min-width: max-content;
   display: flex;

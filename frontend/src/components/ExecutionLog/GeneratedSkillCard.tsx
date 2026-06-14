@@ -343,25 +343,27 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
       )}
 
       <section className="skill-steps-section">
-        <div className="section-title-row">
-          <h4>Workflow graph</h4>
-          <button className="text-button" type="button" onClick={addStep}>
-            Add step
-          </button>
-        </div>
-        <div className="workflow-graph-scroll" aria-label="Generated skill workflow steps">
-          <div className="workflow-graph">
-          {steps.map((step, index) => (
-            <button
-              className={`workflow-graph-node ${index === selectedStepIndex ? 'selected' : ''}`}
-              key={step.localId}
-              type="button"
-              onClick={() => setSelectedStepIndex(index)}
-            >
-              <span>{index + 1}</span>
-              <strong>{step.title || `Step ${index + 1}`}</strong>
+        <div className="sticky-workflow-graph">
+          <div className="section-title-row">
+            <h4>Workflow graph</h4>
+            <button className="text-button" type="button" onClick={addStep}>
+              Add step
             </button>
-          ))}
+          </div>
+          <div className="workflow-graph-scroll" aria-label="Generated skill workflow steps">
+            <div className="workflow-graph">
+            {steps.map((step, index) => (
+              <button
+                className={`workflow-graph-node ${index === selectedStepIndex ? 'selected' : ''}`}
+                key={step.localId}
+                type="button"
+                onClick={() => setSelectedStepIndex(index)}
+              >
+                <span>{index + 1}</span>
+                <strong>{step.title || `Step ${index + 1}`}</strong>
+              </button>
+            ))}
+            </div>
           </div>
         </div>
 
