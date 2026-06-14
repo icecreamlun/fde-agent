@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Global theme: light background, Helvetica font ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Helvetica, Arial, sans-serif;
+  background: #ffffff;
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Light-theme overrides for dark Tailwind slate classes ── */
+
+/* Backgrounds */
+.bg-slate-900 { background-color: #f8fafc !important; }
+.bg-slate-800 { background-color: #f1f5f9 !important; }
+.bg-slate-700 { background-color: #e2e8f0 !important; }
+
+/* Text */
+.text-slate-100 { color: #0f172a !important; }
+.text-slate-200 { color: #1e293b !important; }
+.text-slate-300 { color: #334155 !important; }
+.text-slate-400 { color: #64748b !important; }
+.text-slate-500 { color: #94a3b8 !important; }
+.text-slate-600 { color: #cbd5e1 !important; }
+
+/* Borders */
+.border-slate-700 { border-color: #e2e8f0 !important; }
+.border-slate-600 { border-color: #cbd5e1 !important; }
+
+/* Indigo accent — keep vivid on light bg */
+.bg-indigo-500 { background-color: #6366f1 !important; }
+.bg-indigo-600 { background-color: #4f46e5 !important; }
+.border-indigo-500 { border-color: #6366f1 !important; }
+.border-indigo-400 { border-color: #818cf8 !important; }
+.text-indigo-400 { color: #6366f1 !important; }
+.text-indigo-300 { color: #4f46e5 !important; }
+.text-indigo-500 { color: #4338ca !important; }
+
+/* Success / error stays vivid */
+.text-green-400 { color: #16a34a !important; }
+.text-red-400   { color: #dc2626 !important; }
+.bg-green-900   { background-color: #dcfce7 !important; }
+.bg-red-900     { background-color: #fee2e2 !important; }
+
+/* Progress bar bg track */
+.bg-slate-700.rounded-full { background-color: #e2e8f0 !important; }
+
+/* Dropdown / select */
+select.bg-slate-800 {
+  background-color: #ffffff !important;
+  color: #1e293b !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Cards — add subtle shadow for depth on white */
+.rounded-lg.border.border-slate-700,
+.rounded-lg.border-2 {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* Buttons */
+button {
+  font-family: Helvetica, Arial, sans-serif;
+  cursor: pointer;
+}
+
+/* Code / pre blocks */
+pre {
+  background: #f1f5f9 !important;
+  color: #1e293b !important;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 11px;
+  overflow-x: auto;
+}
