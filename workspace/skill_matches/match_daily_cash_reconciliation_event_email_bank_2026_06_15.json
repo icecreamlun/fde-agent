@@ -1,0 +1,17 @@
+{
+  "match_confidence": 1.0,
+  "match_id": "match_daily_cash_reconciliation_event_email_bank_2026_06_15",
+  "match_reasons": [
+    "Subject starts with Daily bank transactions - Jun",
+    "Attachment matches bank_transactions_*.xlsx",
+    "Required file exists: workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx",
+    "Workbook workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx has sheet Daily Reconciliation",
+    "No existing reconciliation row for the email date"
+  ],
+  "matched_at": "2026-06-14T20:51:05+00:00",
+  "preview_path": "D:\\hackathon\\workspace\\skill_matches\\match_daily_cash_reconciliation_event_email_bank_2026_06_15.preview.json",
+  "skill_id": "daily_cash_reconciliation",
+  "skill_version": 1,
+  "status": "executed",
+  "trigger_event_id": "event_email_bank_2026_06_15"
+}

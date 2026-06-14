@@ -1,0 +1,36 @@
+{
+  "files_to_create": [
+    "workspace/workbooks/generated/skillforge_finance_demo_cash_recon_2026_06_15_reconciled.xlsx",
+    "workspace/mail/drafts/cash_recon_2026_06_15_reply.eml"
+  ],
+  "files_to_modify": [
+    "workspace/workbooks/skillforge_finance_demo_cash_recon.skill_updates.jsonl",
+    "workspace/events/events.jsonl"
+  ],
+  "guardrails": [
+    "No email will be sent",
+    "No network access",
+    "No closed-period sheets modified",
+    "Human approval required before write"
+  ],
+  "input": "workspace/attachments/bank_transactions_2026_06_15.xlsx",
+  "match_id": "match_daily_cash_reconciliation_event_email_bank_2026_06_15",
+  "proposed_reply_draft": "Daily reconciliation complete. Created reconciled spreadsheet: skillforge_finance_demo_cash_recon_2026_06_15_reconciled.xlsx. 3 transactions matched; 1 exception requires review before sending.",
+  "proposed_workbook_update": {
+    "exception_count": 1,
+    "exceptions": [
+      {
+        "bank_amount": "210.00",
+        "description": "Amount variance",
+        "erp_amount": "200.00",
+        "transaction_id": "tx-1004"
+      }
+    ],
+    "import_transactions": 4,
+    "matched_count": 3,
+    "target_sheet": "Daily Reconciliation"
+  },
+  "skill_id": "daily_cash_reconciliation",
+  "skill_version": 1,
+  "status": "awaiting_approval"
+}

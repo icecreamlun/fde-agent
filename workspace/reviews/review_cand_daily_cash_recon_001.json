@@ -1,0 +1,506 @@
+{
+  "candidate_id": "cand_daily_cash_recon_001",
+  "candidate_summary": {
+    "confidence": 0.95,
+    "episode_count": 3,
+    "one_liner": "new daily bank transaction email",
+    "workflow_family": "daily_cash_reconciliation"
+  },
+  "created_at": "2026-06-14T20:50:55+00:00",
+  "evidence": {
+    "common_fields": [
+      "Recon Date",
+      "Txn ID",
+      "Bank Ref",
+      "Bank Date",
+      "Bank Description",
+      "Bank Amount",
+      "ERP Ref",
+      "ERP Date",
+      "ERP Description",
+      "ERP Amount",
+      "Amount Diff",
+      "Match Status",
+      "Exception Reason",
+      "Reviewer",
+      "Reviewed At",
+      "Source Email ID",
+      "Skill Run ID",
+      "Notes"
+    ],
+    "episodes": [
+      "episode_msg_bank_2026_06_12",
+      "episode_msg_bank_2026_06_13",
+      "episode_msg_bank_2026_06_14"
+    ],
+    "next_trigger": {
+      "event_id": "event_email_bank_2026_06_15",
+      "message_id": "msg_bank_2026_06_15",
+      "target_rows": "137:181",
+      "thread_id": "thread_daily_cash_2026_06_15",
+      "unprocessed_action_columns": [
+        "Match Status",
+        "Exception Reason",
+        "Reviewer",
+        "Reviewed At",
+        "Source Email ID",
+        "Skill Run ID"
+      ]
+    },
+    "similarity_reason": [
+      "same inbound email intent",
+      "same attachment naming pattern",
+      "same target workbook skillforge_finance_demo_cash_recon.xlsx",
+      "same target sheet Daily Reconciliation",
+      "same spreadsheet audit sequence",
+      "same daily summary reply shape"
+    ],
+    "source_event_ids": [
+      "email_in_20260612",
+      "audit_003",
+      "email_sent_20260612",
+      "email_in_20260613",
+      "audit_006",
+      "email_sent_20260613",
+      "email_in_20260614",
+      "audit_009",
+      "email_sent_20260614"
+    ],
+    "target_artifact": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx",
+    "target_rows_examples": [
+      "2:46",
+      "47:91",
+      "92:136"
+    ],
+    "target_sheet": "Daily Reconciliation"
+  },
+  "feedback_path": "D:\\hackathon\\workspace\\reviews\\review_cand_daily_cash_recon_001\\human_feedback.json",
+  "handoff_required_confirmation_fields": [
+    "skill_name",
+    "owner_role",
+    "trigger_conditions",
+    "allowed_actions",
+    "forbidden_actions",
+    "approval_mode",
+    "success_criteria"
+  ],
+  "review_session_id": "review_cand_daily_cash_recon_001",
+  "skill_dir": "D:\\hackathon\\workspace\\skills\\daily-cash-reconciliation",
+  "skill_id": "daily_cash_reconciliation",
+  "source_contract_version": "section_a.skill_candidate.v1",
+  "status": "installed",
+  "suggested": {
+    "allowed_actions": [
+      "compute_amount_diff",
+      "create_email_draft",
+      "draft_summary_reply",
+      "fill_exception_reason",
+      "fill_match_status",
+      "fill_reviewed_at",
+      "fill_reviewer",
+      "fill_skill_run_id",
+      "fill_source_email_id",
+      "match_transactions_against_payment_export",
+      "preview_daily_reconciliation_row_updates",
+      "preview_workbook_update",
+      "read_attachment",
+      "read_bank_attachment_rows",
+      "read_email",
+      "read_workbook",
+      "write_audit_log",
+      "write_workbook_update_after_approval"
+    ],
+    "approval_mode": "confirm_each_run",
+    "description": "Automates the repeated daily_cash_reconciliation workflow by reading the trigger input, previewing updates to Daily Reconciliation, drafting local outputs, and creating approved spreadsheet outputs.",
+    "expected_outcome": {
+      "files_created": [
+        "workspace/workbooks/generated/{source_workbook}_{event_date}_reconciled.xlsx",
+        "workspace/mail/drafts/{skill_id}_{event_date}_reply.eml"
+      ],
+      "files_modified": [
+        "workspace/workbooks/skillforge_finance_demo_cash_recon.skill_updates.jsonl",
+        "workspace/events/events.jsonl"
+      ],
+      "side_effects": [
+        "Do not access the network.",
+        "Do not modify closed-period sheets.",
+        "Do not overwrite reviewed rows.",
+        "Do not read outside the workspace.",
+        "Do not send email automatically.",
+        "Require human approval before workbook changes."
+      ],
+      "summary": "The approved run creates a new reconciled spreadsheet for Daily Reconciliation, creates any required local draft outputs, and records audit/SkillOps evidence without forbidden side effects."
+    },
+    "forbidden_actions": [
+      "access_network",
+      "modify_closed_period_sheets",
+      "overwrite_reviewed_rows",
+      "read_outside_workspace",
+      "send_email"
+    ],
+    "inputs": [
+      {
+        "name": "inbound_attachment",
+        "required": true,
+        "source": "$email.attachments[bank_transactions_*.xlsx]",
+        "type": "xlsx_attachment"
+      },
+      {
+        "name": "target_workbook",
+        "path": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx",
+        "required": true,
+        "type": "xlsx_workbook"
+      },
+      {
+        "name": "daily_reconciliation_sheet",
+        "required": true,
+        "sheet": "Daily Reconciliation",
+        "type": "workbook_sheet",
+        "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+      },
+      {
+        "name": "payment_export_sheet",
+        "required": true,
+        "sheet": "Payment Export",
+        "type": "workbook_sheet",
+        "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+      },
+      {
+        "name": "lists_rules_sheet",
+        "required": true,
+        "sheet": "Lists & Rules",
+        "type": "workbook_sheet",
+        "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "reconciled_spreadsheet",
+        "path_template": "workspace/workbooks/generated/{source_workbook}_{event_date}_reconciled.xlsx",
+        "source_workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx",
+        "target_sheet": "Daily Reconciliation",
+        "type": "xlsx_file"
+      },
+      {
+        "name": "summary_reply_draft",
+        "type": "email_draft"
+      },
+      {
+        "name": "audit_log_entry",
+        "type": "audit_log"
+      }
+    ],
+    "owner_role": "controller",
+    "scope": "team",
+    "skill_id": "daily_cash_reconciliation",
+    "skill_name": "Daily Cash Reconciliation Skill",
+    "trigger": {
+      "conditions": [
+        {
+          "type": "subject_prefix",
+          "value": "Daily bank transactions - Jun"
+        },
+        {
+          "type": "has_attachment_matching",
+          "value": "bank_transactions_*.xlsx"
+        },
+        {
+          "type": "require_file",
+          "value": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        {
+          "sheet": "Daily Reconciliation",
+          "type": "workbook_has_sheet",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        {
+          "date_source": "$email.date",
+          "type": "no_existing_recon_for_date",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        }
+      ],
+      "event_type": "email_received",
+      "label": "new daily bank transaction email"
+    },
+    "trigger_label": "new daily bank transaction email",
+    "validation_rules": [
+      "workbook_can_be_reopened",
+      "only_allowed_sheets_modified",
+      "no_closed_period_sheets_modified",
+      "no_reviewed_rows_overwritten",
+      "reconciled_spreadsheet_created",
+      "exception_count_matches_summary",
+      "draft_created_but_not_sent",
+      "audit_log_written",
+      "target_rows_match_next_trigger",
+      "field_populated_recon_date",
+      "field_populated_txn_id",
+      "field_populated_bank_ref",
+      "field_populated_bank_date",
+      "field_populated_bank_description",
+      "field_populated_bank_amount",
+      "field_populated_erp_ref",
+      "field_populated_erp_date",
+      "field_populated_erp_description",
+      "field_populated_erp_amount",
+      "field_populated_amount_diff",
+      "field_populated_match_status",
+      "field_populated_exception_reason",
+      "field_populated_reviewer",
+      "field_populated_reviewed_at",
+      "field_populated_source_email_id",
+      "field_populated_skill_run_id",
+      "field_populated_notes"
+    ],
+    "workflow_steps": [
+      {
+        "action_type": "parse_xlsx_attachment",
+        "id": "read_bank_attachment_rows",
+        "inputs": [
+          "resources.inputs.inbound_attachment"
+        ],
+        "order": 1,
+        "outputs": [
+          "transactions"
+        ],
+        "summary": "Read the inbound attachment rows that triggered the repeated workflow.",
+        "title": "Read bank attachment rows",
+        "type": "read_input"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "match_transactions_against_payment_export",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 2,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Compare inbound rows against supporting workbook data for Daily Reconciliation.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Match transactions against Payment Export",
+        "type": "transform"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "compute_amount_diff",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 3,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Perform the repeated action: compute Amount Diff.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Compute Amount Diff",
+        "type": "transform"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "preview_daily_reconciliation_row_updates",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 4,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Prepare row updates for Daily Reconciliation without writing them yet.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Preview Daily Reconciliation row updates",
+        "type": "transform"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "fill_match_status",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 5,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Compare inbound rows against supporting workbook data for Daily Reconciliation.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Fill Match Status",
+        "type": "transform"
+      },
+      {
+        "action_type": "flag_reconciliation_exceptions",
+        "id": "fill_exception_reason",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 6,
+        "outputs": [
+          "exceptions"
+        ],
+        "summary": "Populate the Exception Reason field in the proposed workbook update.",
+        "title": "Fill Exception Reason",
+        "type": "analyze"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "fill_reviewer",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 7,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Populate the Reviewer field in the proposed workbook update.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Fill Reviewer",
+        "type": "transform"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "fill_reviewed_at",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 8,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Populate the Reviewed At field in the proposed workbook update.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Fill Reviewed At",
+        "type": "transform"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "fill_source_email_id",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 9,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Populate the Source Email ID field in the proposed workbook update.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Fill Source Email ID",
+        "type": "transform"
+      },
+      {
+        "action_type": "preview_reconciliation_update",
+        "id": "fill_skill_run_id",
+        "inputs": [
+          "transactions",
+          "resources.inputs.target_workbook"
+        ],
+        "order": 10,
+        "outputs": [
+          "reconciliation_preview"
+        ],
+        "summary": "Populate the Skill Run ID field in the proposed workbook update.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Fill Skill Run ID",
+        "type": "transform"
+      },
+      {
+        "action_type": "draft_email_reply",
+        "id": "draft_summary_reply",
+        "inputs": [
+          "reconciliation_preview",
+          "exceptions"
+        ],
+        "order": 11,
+        "outputs": [
+          "summary_reply_draft"
+        ],
+        "summary": "Create a local outbound reply draft summarizing the run result.",
+        "title": "Draft summary reply",
+        "type": "draft_output"
+      },
+      {
+        "action_type": "require_human_approval",
+        "approval_text": "Apply generated updates and create local draft outputs?",
+        "id": "require_approval",
+        "inputs": [
+          "reconciliation_preview",
+          "summary_reply_draft"
+        ],
+        "order": 12,
+        "outputs": [
+          "approval_decision"
+        ],
+        "summary": "Ask a reviewer to approve the workbook update and reply draft before any write occurs.",
+        "title": "Request human approval",
+        "type": "human_approval"
+      },
+      {
+        "action_type": "write_xlsx_update",
+        "id": "create_reconciled_spreadsheet",
+        "inputs": [
+          "approval_decision",
+          "reconciliation_preview"
+        ],
+        "order": 13,
+        "outputs": [
+          "reconciled_spreadsheet"
+        ],
+        "requires_step": "require_approval",
+        "summary": "After approval, create a new spreadsheet containing the previewed Daily Reconciliation updates.",
+        "target": {
+          "sheet": "Daily Reconciliation",
+          "workbook": "workspace/workbooks/skillforge_finance_demo_cash_recon.xlsx"
+        },
+        "title": "Create reconciled spreadsheet",
+        "type": "write_output"
+      },
+      {
+        "action_type": "write_audit_log",
+        "id": "write_audit_log",
+        "inputs": [
+          "reconciled_spreadsheet",
+          "summary_reply_draft"
+        ],
+        "order": 14,
+        "outputs": [
+          "audit_event",
+          "skillops_usage_event"
+        ],
+        "summary": "Record validation results, output paths, and SkillOps usage evidence.",
+        "title": "Write audit log",
+        "type": "validate"
+      }
+    ]
+  }
+}

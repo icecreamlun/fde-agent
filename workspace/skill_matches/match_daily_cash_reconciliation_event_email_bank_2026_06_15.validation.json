@@ -1,0 +1,37 @@
+{
+  "checks": [
+    {
+      "name": "workbook_can_be_reopened",
+      "status": "passed"
+    },
+    {
+      "name": "only_allowed_sheets_modified",
+      "status": "passed"
+    },
+    {
+      "name": "no_closed_period_sheets_modified",
+      "status": "passed"
+    },
+    {
+      "name": "no_reviewed_rows_overwritten",
+      "status": "passed"
+    },
+    {
+      "name": "reconciled_spreadsheet_created",
+      "status": "passed"
+    },
+    {
+      "name": "exception_count_matches_summary",
+      "status": "passed"
+    },
+    {
+      "name": "draft_created_but_not_sent",
+      "status": "passed"
+    },
+    {
+      "name": "audit_log_written",
+      "status": "passed"
+    }
+  ],
+  "validation_status": "passed"
+}

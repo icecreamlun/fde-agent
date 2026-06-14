@@ -1,0 +1,212 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from autoskill_agent import core, skillgen
+
+
+def cmd_init_demo(args: argparse.Namespace) -> int:
+    paths = core.init_demo(args.root, force=args.force)
+    print(f"Demo tracker: {paths.tracker_csv}")
+    print(f"Dashboard:    {paths.dashboard_html}")
+    return 0
+
+
+def cmd_observe(args: argparse.Namespace) -> int:
+    candidate = core.observe(args.root, min_examples=args.min_examples)
+    paths = core.workspace_paths(args.root)
+    print(f"Candidate: {candidate['name']} ({candidate['id']})")
+    print(f"Examples:  {candidate['source']['completed_examples']}")
+    print(f"Pending:   {candidate['source']['pending_rows']}")
+    print(f"Wrote:     {paths.candidate_json}")
+    print(f"Review:    {paths.candidate_md}")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace) -> int:
+    if not args.yes:
+        print("Approval required. Re-run with --yes after reviewing the candidate markdown.")
+        return 2
+    manifest = core.approve_candidate(args.root, approved_by=args.approved_by)
+    paths = core.workspace_paths(args.root)
+    print(f"Registered skill: {manifest['id']} v{manifest['version']}")
+    print(f"Skill dir:         {paths.skills_dir / manifest['id']}")
+    print(f"Registry:          {paths.registry_json}")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    result = core.run_registered_skill(args.root, approve=args.approve)
+    if result["wrote"]:
+        print(f"Executed skill. Output: {result['output']}")
+    else:
+        print(f"Preview only. Review: {result['preview_path']}")
+        print("Re-run with --approve to write the completed tracker.")
+    print(f"Proposed row changes: {len(result['preview'])}")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    print(json.dumps(core.status(args.root), indent=2))
+    return 0
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    paths = core.init_demo(args.root, force=args.reset)
+    candidate = core.observe(args.root)
+    manifest = core.approve_candidate(args.root, approved_by=args.approved_by)
+    result = core.run_registered_skill(args.root, approve=True)
+    print("SheetSkill Local demo complete")
+    print(f"Candidate: {candidate['id']}")
+    print(f"Skill:     {manifest['id']} v{manifest['version']}")
+    print(f"Output:    {result['output']}")
+    print(f"Dashboard: {paths.dashboard_html}")
+    print(f"Audit:     {paths.audit_log}")
+    return 0
+
+
+def cmd_skillgen_bootstrap(args: argparse.Namespace) -> int:
+    result = skillgen.bootstrap_demo(args.root, force=args.force)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_skillgen_seed_section_a(args: argparse.Namespace) -> int:
+    result = skillgen.seed_section_a_mock_from_workbook(args.root, args.workbook, force=args.force)
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "ok" else 2
+
+
+def cmd_skillgen_review(args: argparse.Namespace) -> int:
+    review = skillgen.create_review_session(args.root, args.candidate_id)
+    print(json.dumps(review, indent=2))
+    return 0
+
+
+def cmd_skillgen_install(args: argparse.Namespace) -> int:
+    feedback = skillgen.default_human_feedback(args.root, args.review_session_id, reviewer=args.reviewer)
+    submit = skillgen.submit_feedback(args.root, args.review_session_id, feedback)
+    if submit["status"] != "ok":
+        print(json.dumps(submit, indent=2))
+        return 2
+    result = skillgen.install_skill(args.root, args.review_session_id)
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "installed" else 2
+
+
+def cmd_skillgen_match(args: argparse.Namespace) -> int:
+    matches = skillgen.match_events(args.root)
+    print(json.dumps({"matches": matches}, indent=2))
+    return 0
+
+
+def cmd_skillgen_preview(args: argparse.Namespace) -> int:
+    preview = skillgen.preview_match(args.root, args.match_id)
+    print(json.dumps(preview, indent=2))
+    return 0
+
+
+def cmd_skillgen_approve(args: argparse.Namespace) -> int:
+    execution = skillgen.approve_match(args.root, args.match_id, actor=args.actor)
+    print(json.dumps(execution, indent=2))
+    return 0
+
+
+def cmd_skillgen_skillops(args: argparse.Namespace) -> int:
+    print(json.dumps(skillgen.skillops_summary(args.root), indent=2))
+    return 0
+
+
+def cmd_skillgen_demo(args: argparse.Namespace) -> int:
+    result = skillgen.run_full_skillgen_demo(args.root, force=args.reset)
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="autoskill",
+        description="Offline auto-skillizing agent prototype for repeated spreadsheet workflows.",
+    )
+    parser.add_argument("--root", default=".", help="Repository/workspace root.")
+    subparsers = parser.add_subparsers(required=True)
+
+    init_parser = subparsers.add_parser("init-demo", help="Create the local demo tracker.")
+    init_parser.add_argument("--force", action="store_true", help="Overwrite existing demo data.")
+    init_parser.set_defaults(func=cmd_init_demo)
+
+    observe_parser = subparsers.add_parser("observe", help="Detect a reusable skill candidate.")
+    observe_parser.add_argument("--min-examples", type=int, default=3)
+    observe_parser.set_defaults(func=cmd_observe)
+
+    approve_parser = subparsers.add_parser("approve", help="Register the generated skill.")
+    approve_parser.add_argument("--yes", action="store_true", help="Approve candidate registration.")
+    approve_parser.add_argument("--approved-by", default="human")
+    approve_parser.set_defaults(func=cmd_approve)
+
+    run_parser = subparsers.add_parser("run", help="Preview or execute the registered skill.")
+    run_parser.add_argument("--approve", action="store_true", help="Write output files.")
+    run_parser.set_defaults(func=cmd_run)
+
+    demo_parser = subparsers.add_parser("demo", help="Run the full end-to-end demo.")
+    demo_parser.add_argument("--reset", action="store_true", help="Reset demo data first.")
+    demo_parser.add_argument("--approved-by", default="human")
+    demo_parser.set_defaults(func=cmd_demo)
+
+    status_parser = subparsers.add_parser("status", help="Show current local state.")
+    status_parser.set_defaults(func=cmd_status)
+
+    skillgen_bootstrap = subparsers.add_parser("skillgen-bootstrap", help="Create Section A demo candidate/events.")
+    skillgen_bootstrap.add_argument("--force", action="store_true")
+    skillgen_bootstrap.set_defaults(func=cmd_skillgen_bootstrap)
+
+    skillgen_seed_section_a = subparsers.add_parser(
+        "skillgen-seed-section-a",
+        help="Create Section A mock candidate/events from a workbook.",
+    )
+    skillgen_seed_section_a.add_argument("--workbook", required=True, type=Path)
+    skillgen_seed_section_a.add_argument("--force", action="store_true")
+    skillgen_seed_section_a.set_defaults(func=cmd_skillgen_seed_section_a)
+
+    skillgen_review = subparsers.add_parser("skillgen-review", help="Start review from a Section A skill candidate.")
+    skillgen_review.add_argument("--candidate-id", default="cand_daily_cash_recon_001")
+    skillgen_review.set_defaults(func=cmd_skillgen_review)
+
+    skillgen_install = subparsers.add_parser("skillgen-install", help="Submit default feedback and install skill.")
+    skillgen_install.add_argument("--review-session-id", default="review_cand_daily_cash_recon_001")
+    skillgen_install.add_argument("--reviewer", default="controller")
+    skillgen_install.set_defaults(func=cmd_skillgen_install)
+
+    skillgen_match = subparsers.add_parser("skillgen-match", help="Match active skills against local events.")
+    skillgen_match.set_defaults(func=cmd_skillgen_match)
+
+    skillgen_preview = subparsers.add_parser("skillgen-preview", help="Create an execution preview for a match.")
+    skillgen_preview.add_argument("match_id")
+    skillgen_preview.set_defaults(func=cmd_skillgen_preview)
+
+    skillgen_approve = subparsers.add_parser("skillgen-approve", help="Approve and execute a skill match.")
+    skillgen_approve.add_argument("match_id")
+    skillgen_approve.add_argument("--actor", default="analyst_1")
+    skillgen_approve.set_defaults(func=cmd_skillgen_approve)
+
+    skillgen_skillops = subparsers.add_parser("skillgen-skillops", help="Show SkillOps metrics and recommendations.")
+    skillgen_skillops.set_defaults(func=cmd_skillgen_skillops)
+
+    skillgen_demo = subparsers.add_parser("skillgen-demo", help="Run Team B skill-generation demo end-to-end.")
+    skillgen_demo.add_argument("--reset", action="store_true")
+    skillgen_demo.set_defaults(func=cmd_skillgen_demo)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    args.root = Path(args.root).resolve()
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
