@@ -123,6 +123,21 @@ class SkillGenerationTests(unittest.TestCase):
         self.assertEqual(suggested["workflow_steps"], review["suggested"]["workflow_steps"])
         self.assertTrue(any("too few" in warning or "approval-before-write" in warning for warning in warnings))
 
+    def test_section_a_review_does_not_mutate_legacy_candidate_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skillgen.bootstrap_demo(root, force=True)
+            candidate_path = skillgen.candidate_path_for(root, "cand_daily_cash_recon_001")
+            legacy_before = skillgen.read_json(candidate_path)
+
+            review = skillgen.create_review_session(root, "cand_daily_cash_recon_001")
+            feedback = skillgen.default_human_feedback(root, review["review_session_id"])
+            skillgen.submit_feedback(root, review["review_session_id"], feedback)
+            skillgen.install_skill(root, review["review_session_id"])
+
+            legacy_after = skillgen.read_json(candidate_path)
+            self.assertEqual(legacy_after, legacy_before)
+
     def test_matches_previews_executes_and_tracks_skillops(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

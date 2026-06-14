@@ -997,14 +997,16 @@ def create_review_session(
         return validation
 
     review_id = f"review_{candidate_id}"
-    if is_section_a_candidate(candidate):
+    candidate_is_section_a = is_section_a_candidate(candidate)
+    if candidate_is_section_a:
         review = build_section_a_review(review_id, candidate)
     else:
         review = build_legacy_review(review_id, candidate)
     review = apply_skill_planner(root, candidate, review, planner=planner, model_timeout_seconds=model_timeout_seconds)
     p.reviews_dir.mkdir(parents=True, exist_ok=True)
     write_json(p.reviews_dir / f"{review_id}.json", review)
-    update_candidate_status(root, candidate_id, "accepted_for_skill_generation")
+    if not candidate_is_section_a:
+        update_candidate_status(root, candidate_id, "accepted_for_skill_generation")
     append_event(
         p.event_log,
         {
@@ -2232,7 +2234,8 @@ def install_skill(root: Path | str, review_session_id: str) -> dict[str, Any]:
     write_skill_bundle(skill_dir, candidate, feedback, skill)
     init_registry(p.registry_db)
     register_skill(p.registry_db, skill, skill_dir)
-    update_candidate_status(root, candidate["candidate_id"], "converted_to_skill")
+    if not is_section_a_candidate(candidate):
+        update_candidate_status(root, candidate["candidate_id"], "converted_to_skill")
 
     review["status"] = "installed"
     review["skill_id"] = skill_id

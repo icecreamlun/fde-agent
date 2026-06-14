@@ -72,6 +72,48 @@ The downloaded NemoClaw/OpenClaw source trees do not contain `dist/` or `node_mo
 
 The Team B skill-generation flow from the final design doc is implemented under `autoskill_agent/skillgen.py`.
 
+## Live Email To Excel Intake
+
+Configure Gmail or any IMAP-compatible inbox:
+
+```powershell
+$env:SKILLFORGE_IMAP_HOST="imap.gmail.com"
+$env:SKILLFORGE_IMAP_PORT="993"
+$env:SKILLFORGE_IMAP_USERNAME="your@gmail.com"
+$env:SKILLFORGE_IMAP_PASSWORD="gmail-app-password"
+$env:SKILLFORGE_IMAP_MAILBOX="INBOX"
+$env:SKILLFORGE_OPENCLAW_COMMAND="openclaw"
+```
+
+Fetch unread email through IMAP and enrich each message through OpenClaw before writing `activity_events.jsonl`:
+
+```powershell
+python -m autoskill_agent.cli imap-poll --once --openclaw-mode openclaw
+```
+
+For an offline deterministic demo without a live OpenClaw binary:
+
+```powershell
+python -m autoskill_agent.cli imap-poll --once --openclaw-mode mock
+```
+
+Write OpenClaw-enriched matching email events into the onboarding tracker workbook and emit the matching `spreadsheet_row_updated` activity event:
+
+```powershell
+python -m autoskill_agent.cli email-to-excel --workbook workspace/workbooks/onboarding_tracker.xlsx --yes
+```
+
+The Excel path uses `openpyxl`. Install it in the active Python environment or run with a Python runtime that already includes it.
+
+Run the integrated Section A -> Section B demo:
+
+```powershell
+cd D:\hackathon
+python -m autoskill_agent.cli skillgen-section-a-demo --reset --execute
+```
+
+This runs deterministic Section A activity detection from `tests/fixtures/cash_recon_events.jsonl`, writes `workspace/events/workflow_episodes.jsonl` and `workspace/events/skill_candidates.jsonl`, then feeds the candidate into Team B review, skill installation, event matching, preview, approval, local workbook output, draft output, validation, and SkillOps.
+
 Run the end-to-end local demo:
 
 ```powershell

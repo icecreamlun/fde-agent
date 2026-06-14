@@ -1,4 +1,9 @@
 .runtime/
+AGENTS.md
+workspace/events/workflow_episodes.jsonl
+workspace/events/activity_events.jsonl
+workspace/events/audit_log.jsonl
+workspace/events/execution_previews.jsonl
 __pycache__/
 *.py[cod]
 .pytest_cache/
