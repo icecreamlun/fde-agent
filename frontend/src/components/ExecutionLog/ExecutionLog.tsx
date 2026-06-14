@@ -10,7 +10,7 @@ interface ExecutionLogProps {
   onApprove: () => void
   onReject: () => void
   decision?: { decision: 'approved' | 'rejected'; actor?: string; timestamp: string } | null
-  status?: 'connecting' | 'streaming' | 'done' | 'error'
+  status?: 'idle' | 'connecting' | 'streaming' | 'done' | 'error'
 }
 
 export function ExecutionLog({ events, matchId, onApprove, onReject, decision, status }: ExecutionLogProps) {

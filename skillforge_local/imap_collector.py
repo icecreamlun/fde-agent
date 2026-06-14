@@ -21,6 +21,8 @@ def fetch_unseen_once(
     config: ImapConfig,
     *,
     actor: str = "fde_engineer",
+    limit: int | None = None,
+    latest: bool = False,
 ) -> Iterator[dict]:
     with imaplib.IMAP4_SSL(config.host, config.port) as client:
         client.login(config.username, config.password)
@@ -30,9 +32,13 @@ def fetch_unseen_once(
             raise RuntimeError("IMAP UNSEEN search failed")
 
         uids = data[0].split() if data and data[0] else []
+        if latest:
+            uids = list(reversed(uids))
+        if limit is not None:
+            uids = uids[: max(0, limit)]
         for uid_bytes in uids:
             uid = uid_bytes.decode("ascii")
-            fetch_status, fetch_data = client.uid("fetch", uid, "(RFC822)")
+            fetch_status, fetch_data = client.uid("fetch", uid, "(BODY.PEEK[])")
             if fetch_status != "OK":
                 continue
             raw = _extract_rfc822(fetch_data)

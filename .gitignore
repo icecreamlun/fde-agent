@@ -1,5 +1,12 @@
 .runtime/
+.venv/
 AGENTS.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+workspace/.openclaw/
 workspace/events/workflow_episodes.jsonl
 workspace/events/activity_events.jsonl
 workspace/events/audit_log.jsonl

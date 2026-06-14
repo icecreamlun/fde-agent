@@ -167,7 +167,7 @@ def cmd_imap_poll(args: argparse.Namespace) -> int:
     config = load_imap_config()
     events_log = _workspace_path(args.root, args.events_log)
     count = 0
-    for event in fetch_unseen_once(config, actor=args.actor):
+    for event in fetch_unseen_once(config, actor=args.actor, limit=args.limit, latest=args.latest):
         if args.openclaw_mode == "mock":
             extraction = mock_openclaw_extract(event)
         else:
@@ -311,6 +311,8 @@ def build_parser() -> argparse.ArgumentParser:
     imap_poll.add_argument("--once", action="store_true", help="Fetch one UNSEEN batch. Continuous IMAP IDLE is out of MVP scope.")
     imap_poll.add_argument("--actor", default="fde_engineer")
     imap_poll.add_argument("--events-log", type=Path, default=Path("workspace/events/activity_events.jsonl"))
+    imap_poll.add_argument("--limit", type=int, default=None, help="Maximum number of UNSEEN messages to fetch.")
+    imap_poll.add_argument("--latest", action="store_true", help="Fetch newest UNSEEN messages first when used with --limit.")
     imap_poll.add_argument("--openclaw-mode", choices=["openclaw", "mock"], default="openclaw")
     imap_poll.add_argument("--openclaw-command", default=None)
     imap_poll.add_argument("--openclaw-timeout", type=int, default=60)

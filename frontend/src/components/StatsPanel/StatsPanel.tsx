@@ -20,20 +20,17 @@ export default function StatsPanel({ selectedSkillId, onSkillChange, executionSt
   const { data: metrics } = useSkillOps(selectedSkillId)
   const { data: skills } = useSkillList()
   const [collapsed, setCollapsed] = useState(false)
-  const [elapsed, setElapsed] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    if (!executionStartedAt) {
-      setElapsed(null)
-      return
-    }
-    const startMs = new Date(executionStartedAt).getTime()
-    const tick = () => setElapsed(Math.floor((Date.now() - startMs) / 1000))
-    tick()
-    const id = setInterval(tick, 1000)
+    if (!executionStartedAt) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [executionStartedAt])
 
+  const elapsed = executionStartedAt
+    ? Math.max(0, Math.floor((now - new Date(executionStartedAt).getTime()) / 1000))
+    : null
   const elapsedStr = elapsed !== null ? formatElapsed(elapsed) : '—'
 
   /* ── Collapsed strip ── */

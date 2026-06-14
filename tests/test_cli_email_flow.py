@@ -6,7 +6,7 @@ def test_cli_exposes_imap_poll_and_email_to_excel_commands():
 
     parser = build_parser()
 
-    imap_args = parser.parse_args(["imap-poll", "--once", "--openclaw-mode", "mock"])
+    imap_args = parser.parse_args(["imap-poll", "--once", "--openclaw-mode", "mock", "--limit", "2", "--latest"])
     excel_args = parser.parse_args(
         [
             "email-to-excel",
@@ -17,6 +17,8 @@ def test_cli_exposes_imap_poll_and_email_to_excel_commands():
     )
 
     assert imap_args.func.__name__ == "cmd_imap_poll"
+    assert imap_args.limit == 2
+    assert imap_args.latest is True
     assert excel_args.func.__name__ == "cmd_email_to_excel"
 
 
