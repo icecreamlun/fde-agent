@@ -24,6 +24,16 @@ function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }
 
+function workflowText(text: string): string {
+  return text
+    .replace(/\bskill_id\b/g, 'workflow_id')
+    .replace(/\{skill_id\}/g, '{workflow_id}')
+    .replace(/\bGenerated skill\b/g, 'Generated workflow')
+    .replace(/\bgenerated skill\b/g, 'generated workflow')
+    .replace(/\bSkill\b/g, 'Workflow')
+    .replace(/\bskill\b/g, 'workflow')
+}
+
 function cleanGuardrail(text: string): string {
   const labels: Record<string, string> = {
     'No email will be sent': 'No email is sent automatically',
@@ -97,8 +107,8 @@ export function ApprovalCard({ event, onApprove, onReject, decided }: ApprovalCa
         <h4>Files to create</h4>
         {proposed_changes.files_to_create.map(path => (
           <div className="file-row" key={path}>
-            <span>{fileName(path)}</span>
-            <small>{path}</small>
+            <span>{workflowText(fileName(path))}</span>
+            <small>{workflowText(path)}</small>
           </div>
         ))}
       </div>

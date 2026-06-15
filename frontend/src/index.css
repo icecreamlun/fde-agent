@@ -499,6 +499,31 @@ h4 {
   overflow-wrap: anywhere;
 }
 
+.output-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.output-link-row a {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--primary);
+  padding: 0 13px;
+  color: #ffffff;
+  background: var(--primary);
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.output-link-row a:hover {
+  background: #000000;
+}
+
 .output-proof-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

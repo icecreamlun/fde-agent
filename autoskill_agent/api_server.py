@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import re
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from autoskill_agent import skillgen
 
@@ -585,6 +586,9 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
                 return self.send_json(list_matches(self.root))
             if path == "/api/skillops/summary":
                 return self.send_json(skill_list_payload(self.root))
+            match = re.fullmatch(r"/api/files/(.+)", path)
+            if match:
+                return self.send_file(match.group(1))
             match = re.fullmatch(r"/api/skillops/skills/([^/]+)", path)
             if match:
                 return self.send_json(skillops_payload(self.root, match.group(1)))
@@ -594,6 +598,16 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except Exception as exc:
             self.send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def do_HEAD(self) -> None:
+        path = urlparse(self.path).path
+        try:
+            match = re.fullmatch(r"/api/files/(.+)", path)
+            if match:
+                return self.send_file(match.group(1), include_body=False)
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+        except Exception:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Internal server error")
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
@@ -643,6 +657,34 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def send_file(self, rel_path: str, *, include_body: bool = True) -> None:
+        decoded = unquote(rel_path)
+        target = (self.root / decoded).resolve()
+        root = self.root.resolve()
+        if root not in target.parents and target != root:
+            self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+            return
+        allowed_roots = [
+            root / "workspace" / "workbooks" / "generated",
+            root / "workspace" / "mail" / "drafts",
+            root / "workspace" / "skill_matches",
+        ]
+        if not any(base.resolve() in target.parents for base in allowed_roots):
+            self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+            return
+        if not target.exists() or not target.is_file():
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+        mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        data = target.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'inline; filename="{target.name}"')
+        self.end_headers()
+        if include_body:
+            self.wfile.write(data)
 
     def send_sse_event(self, event: dict[str, Any]) -> None:
         self.wfile.write(f"data: {json.dumps(event, sort_keys=True)}\n\n".encode("utf-8"))

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import urllib.error
 import urllib.request
 import zipfile
@@ -2782,14 +2783,15 @@ def preview_match(root: Path | str, match_id: str) -> dict[str, Any]:
     date_slug = event_date_slug(trigger_event)
     output_workbook = output_workbook_path_for_run(workbook_path, date_slug)
     attachment = find_attachment(root, trigger_event, attachment_pattern_for_skill(skill))
-    transactions = parse_transaction_attachment(attachment)
-    matched = []
-    exceptions = []
-    for tx in transactions:
-        if tx["bank_amount"] == tx["erp_amount"]:
-            matched.append(tx)
-        else:
-            exceptions.append(tx)
+    transactions = reconciliation_rows_for_preview(
+        p.root,
+        workbook_path,
+        target_sheet,
+        trigger_event,
+        fallback_attachment=attachment,
+    )
+    matched = [tx for tx in transactions if tx["match_status"] == "Matched"]
+    exceptions = [tx for tx in transactions if tx["match_status"] != "Matched"]
     exception_word = "exception" if len(exceptions) == 1 else "exceptions"
     verb = "requires" if len(exceptions) == 1 else "require"
     draft = (
@@ -2807,6 +2809,7 @@ def preview_match(root: Path | str, match_id: str) -> dict[str, Any]:
             "exception_count": len(exceptions),
             "target_sheet": target_sheet,
             "exceptions": exceptions,
+            "row_updates": transactions,
         },
         "proposed_reply_draft": draft,
         "files_to_create": [
@@ -2868,10 +2871,22 @@ def approve_match(
     else:
         output_workbook_path.write_text("Generated reconciled spreadsheet placeholder.\n", encoding="utf-8")
     execution_timestamp = utc_now()
-    workbook_change = write_demo_workbook_output(output_workbook_path, preview, match_id, actor, execution_timestamp)
+    execution_id = f"exec_{skill_id}_{date_slug}"
+    workbook_change = write_demo_workbook_output(
+        output_workbook_path,
+        preview,
+        match_id,
+        actor,
+        execution_timestamp,
+        execution_id,
+        trigger_event,
+    )
     draft_path = p.drafts_dir / f"cash_recon_{date_slug}_reply.eml"
     draft_path.parent.mkdir(parents=True, exist_ok=True)
-    draft_path.write_text(preview["proposed_reply_draft"] + "\n", encoding="utf-8")
+    draft_path.write_text(
+        email_draft_text(trigger_event, preview["proposed_reply_draft"], output_workbook_rel),
+        encoding="utf-8",
+    )
 
     update_path = p.root / update_log_path_for_workbook(workbook_path)
     append_event(
@@ -2888,7 +2903,7 @@ def approve_match(
     validation = validate_execution(root, preview, draft_path, output_workbook_path)
     execution = {
         "type": "skill_execution",
-        "execution_id": f"exec_{skill_id}_{date_slug}",
+        "execution_id": execution_id,
         "skill_id": skill_id,
         "skill_version": skill["version"],
         "actor": actor,
@@ -2898,13 +2913,18 @@ def approve_match(
         "outputs": {
             "source_workbook": workbook_path,
             "workbook_created": output_workbook_rel,
+            "workbook_url": artifact_url(output_workbook_rel),
             "rows_added": preview["proposed_workbook_update"]["import_transactions"],
             "matched_count": preview["proposed_workbook_update"]["matched_count"],
             "exception_count": preview["proposed_workbook_update"]["exception_count"],
             "changed_sheets": workbook_change["changed_sheets"],
             "cells_written": workbook_change["cells_written"],
             "summary_sheet": workbook_change["summary_sheet"],
+            "updated_rows": workbook_change.get("updated_rows", []),
+            "review_rows": workbook_change.get("review_rows", []),
             "draft_created": draft_path.relative_to(p.root).as_posix(),
+            "draft_url": artifact_url(draft_path.relative_to(p.root).as_posix()),
+            "runtime": runtime_provenance(),
         },
         "validation": {"status": validation["validation_status"]},
         "network_used": False,
@@ -3006,6 +3026,116 @@ def parse_transaction_attachment(path: Path) -> list[dict[str, str]]:
         return [dict(row) for row in csv.DictReader(f)]
 
 
+def reconciliation_rows_for_preview(
+    root: Path,
+    workbook_path: str,
+    target_sheet: str,
+    trigger_event: dict[str, Any],
+    *,
+    fallback_attachment: Path,
+) -> list[dict[str, Any]]:
+    workbook = root / workbook_path
+    if workbook.exists() and workbook.suffix.lower() == ".xlsx":
+        rows = reconciliation_rows_from_workbook(workbook, target_sheet, event_date_slug(trigger_event))
+        if rows:
+            return rows
+    return reconciliation_rows_from_attachment(fallback_attachment)
+
+
+def reconciliation_rows_from_attachment(path: Path) -> list[dict[str, Any]]:
+    rows = []
+    for row in parse_transaction_attachment(path):
+        bank_amount = amount_or_none(row.get("bank_amount"))
+        erp_amount = amount_or_none(row.get("erp_amount"))
+        amount_diff = amount_diff_value(bank_amount, erp_amount)
+        matched = amount_diff == 0
+        rows.append(
+            {
+                "row_number": None,
+                "transaction_id": row.get("transaction_id", ""),
+                "bank_amount": bank_amount,
+                "erp_amount": erp_amount,
+                "amount_diff": amount_diff,
+                "match_status": "Matched" if matched else "Exception",
+                "exception_reason": "" if matched else row.get("description", "Amount mismatch"),
+                "description": row.get("description", ""),
+            }
+        )
+    return rows
+
+
+def reconciliation_rows_from_workbook(workbook_path: Path, target_sheet: str, date_slug: str) -> list[dict[str, Any]]:
+    try:
+        from openpyxl import load_workbook
+    except Exception:
+        return []
+
+    try:
+        wb = load_workbook(workbook_path, data_only=False)
+    except Exception:
+        return []
+    if target_sheet not in wb.sheetnames:
+        return []
+    ws = wb[target_sheet]
+    headers = {str(ws.cell(1, col).value or ""): col for col in range(1, ws.max_column + 1)}
+    required = ["Txn ID", "Bank Amount", "ERP Amount", "Match Status"]
+    if any(name not in headers for name in required):
+        return []
+    prefix = f"RC-{date_slug.replace('_', '')}-"
+    rows: list[dict[str, Any]] = []
+    for row_number in range(2, ws.max_row + 1):
+        txn_id = ws.cell(row_number, headers["Txn ID"]).value
+        if not isinstance(txn_id, str) or not txn_id.startswith(prefix):
+            continue
+        if ws.cell(row_number, headers["Match Status"]).value:
+            continue
+        bank_amount = amount_or_none(ws.cell(row_number, headers["Bank Amount"]).value)
+        erp_amount = amount_or_none(ws.cell(row_number, headers["ERP Amount"]).value)
+        amount_diff = amount_diff_value(bank_amount, erp_amount)
+        if erp_amount is None:
+            match_status = "Needs Review"
+            exception_reason = "Missing ERP match"
+        elif amount_diff == 0:
+            match_status = "Matched"
+            exception_reason = ""
+        else:
+            match_status = "Exception"
+            exception_reason = "Amount mismatch"
+        rows.append(
+            {
+                "row_number": row_number,
+                "transaction_id": txn_id,
+                "bank_ref": cell_text(ws.cell(row_number, headers["Bank Ref"]).value) if "Bank Ref" in headers else "",
+                "bank_amount": bank_amount,
+                "erp_amount": erp_amount,
+                "amount_diff": amount_diff,
+                "match_status": match_status,
+                "exception_reason": exception_reason,
+                "description": exception_reason or "Matched to ERP export",
+            }
+        )
+    return rows
+
+
+def amount_or_none(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def amount_diff_value(bank_amount: float | None, erp_amount: float | None) -> float | None:
+    if bank_amount is None or erp_amount is None:
+        return None
+    return round(bank_amount - erp_amount, 2)
+
+
+def cell_text(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
 def event_date_slug(event: dict[str, Any]) -> str:
     date_value = event.get("payload", {}).get("date", "")
     match = re.search(r"(20\d{2})-(\d{2})-(\d{2})", date_value)
@@ -3028,12 +3158,74 @@ def prepare_output_workbook_path(root: Path, rel_path: str) -> tuple[str, Path]:
     raise FileExistsError(f"No available generated workbook path for {rel_path}")
 
 
+def artifact_url(rel_path: str) -> str:
+    return f"/api/files/{rel_path.lstrip('/')}"
+
+
+def email_draft_text(trigger_event: dict[str, Any], body: str, output_workbook: str) -> str:
+    payload = trigger_event.get("payload", {}) if isinstance(trigger_event.get("payload"), dict) else {}
+    subject = str(payload.get("subject") or "Daily bank transactions")
+    message_id = str(payload.get("message_id") or trigger_event.get("id") or "source-message")
+    thread_id = str(payload.get("thread_id") or "")
+    sender = str(payload.get("to", ["finance-team@example.local"])[0] if payload.get("to") else "finance-team@example.local")
+    recipient = str(payload.get("from") or "bank-ops@example.local")
+    return (
+        f"From: {sender}\n"
+        f"To: {recipient}\n"
+        f"Subject: Re: {subject}\n"
+        f"Date: {utc_now()}\n"
+        f"Message-ID: <draft-{message_id}@skillforge.local>\n"
+        f"In-Reply-To: <{message_id}@skillforge.local>\n"
+        f"References: <{message_id}@skillforge.local>\n"
+        f"X-SkillForge-Thread-ID: {thread_id}\n"
+        f"X-SkillForge-Output-Workbook: {output_workbook}\n"
+        "MIME-Version: 1.0\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "Content-Transfer-Encoding: 8bit\n"
+        "\n"
+        f"{body}\n"
+    )
+
+
+def runtime_provenance() -> dict[str, Any]:
+    return {
+        "executor": "local_skill_executor",
+        "openclaw": command_version("openclaw"),
+        "nemoclaw": command_version("nemoclaw"),
+        "openshell": command_version("openshell"),
+    }
+
+
+def command_version(command: str) -> dict[str, Any]:
+    command_path = shutil.which(command)
+    if not command_path:
+        return {"available": False}
+    try:
+        result = subprocess.run(
+            [command_path, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as exc:
+        return {"available": True, "path": command_path, "error": str(exc)}
+    output = (result.stdout or result.stderr).strip()
+    return {
+        "available": True,
+        "path": command_path,
+        "version": output.splitlines()[0] if output else "",
+    }
+
+
 def write_demo_workbook_output(
     output_workbook_path: Path,
     preview: dict[str, Any],
     match_id: str,
     actor: str,
     timestamp: str,
+    execution_id: str,
+    trigger_event: dict[str, Any],
 ) -> dict[str, Any]:
     try:
         from openpyxl import Workbook, load_workbook
@@ -3082,19 +3274,49 @@ def write_demo_workbook_output(
         ws.column_dimensions[column].width = 24
     target_sheet = str(update.get("target_sheet", ""))
     changed_sheets = [summary_sheet]
+    updated_rows: list[int] = []
+    review_rows: list[int] = []
     if target_sheet in wb.sheetnames:
         target_ws = wb[target_sheet]
-        row = target_ws.max_row + 2
-        target_ws.cell(row=row, column=1, value="Skill run output")
-        target_ws.cell(row=row, column=2, value=match_id)
-        target_ws.cell(row=row, column=3, value=f"{update['matched_count']} automated")
-        target_ws.cell(row=row, column=4, value=f"{update['exception_count']} review")
+        headers = {str(target_ws.cell(1, col).value or ""): col for col in range(1, target_ws.max_column + 1)}
+        source_email_id = str(trigger_event.get("payload", {}).get("message_id") or trigger_event.get("id") or "")
+        for item in update.get("row_updates", []):
+            row_number = item.get("row_number")
+            if not isinstance(row_number, int) or row_number < 2 or row_number > target_ws.max_row:
+                continue
+            amount_diff = item.get("amount_diff")
+            values = {
+                "Amount Diff": "" if amount_diff is None else amount_diff,
+                "Match Status": item.get("match_status", ""),
+                "Exception Reason": item.get("exception_reason", ""),
+                "Reviewer": actor,
+                "Reviewed At": timestamp,
+                "Source Email ID": source_email_id,
+                "Skill Run ID": execution_id,
+                "Notes": (
+                    f"Generated skill updated this row from {source_email_id}; "
+                    f"{item.get('exception_reason') or 'matched to ERP export'}."
+                ),
+            }
+            for header, value in values.items():
+                column = headers.get(header)
+                if column:
+                    target_ws.cell(row=row_number, column=column, value=value)
+            updated_rows.append(row_number)
+            if item.get("match_status") != "Matched":
+                review_rows.append(row_number)
         changed_sheets.append(target_sheet)
     wb.save(output_workbook_path)
     cells_written = len(rows) * 2 + 4 + (len(update.get("exceptions", [])) * 4)
-    if len(changed_sheets) > 1:
-        cells_written += 4
-    return {"changed_sheets": changed_sheets, "cells_written": cells_written, "summary_sheet": summary_sheet}
+    if updated_rows:
+        cells_written += len(updated_rows) * 8
+    return {
+        "changed_sheets": changed_sheets,
+        "cells_written": cells_written,
+        "summary_sheet": summary_sheet,
+        "updated_rows": updated_rows,
+        "review_rows": review_rows,
+    }
 
 
 def validate_execution(root: Path | str, preview: dict[str, Any], draft_path: Path, output_workbook_path: Path | None = None) -> dict[str, Any]:

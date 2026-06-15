@@ -99,7 +99,7 @@ export function ExecutionLog({
         </button>
         <button className={`flow-step-button ${stageClass(hasWorkflow, hasPattern && isRunning && !hasWorkflow)}`} type="button" disabled>
           <span className="flow-step-icon" />
-          Generate Skills
+          Generate Workflows
         </button>
       </div>
 

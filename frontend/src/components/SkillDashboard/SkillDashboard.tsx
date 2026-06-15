@@ -132,7 +132,7 @@ export function SkillDashboard({ activeSkillId, onRunSkill, runError }: SkillDas
               >
                 <span>{workflow.workflowName}</span>
                 <small>{workflow.department}</small>
-                <strong>{generated ? 'Generated skill' : 'Candidate'}</strong>
+                <strong>{generated ? 'Generated workflow' : 'Candidate'}</strong>
                 <em>{workflow.repeatsToday} today / {workflow.historicalRepeats} history</em>
               </button>
             )
@@ -173,7 +173,7 @@ export function SkillDashboard({ activeSkillId, onRunSkill, runError }: SkillDas
           {runError && <div className="error-box compact">{runError}</div>}
 
           <button className="primary-button dashboard-run-button" type="button" onClick={runSelected} disabled={!selected || isStarting}>
-            {isStarting ? 'Starting workflow' : 'Run skill once for selected target'}
+            {isStarting ? 'Starting workflow' : 'Run workflow once for selected target'}
           </button>
         </div>
       </div>
@@ -181,7 +181,7 @@ export function SkillDashboard({ activeSkillId, onRunSkill, runError }: SkillDas
       <section className="bi-report-panel">
         <div>
           <p className="eyebrow">BI report</p>
-          <h3>Department skill distribution</h3>
+          <h3>Department workflow distribution</h3>
         </div>
         <div className="bi-report-grid">
           {departmentReport.map(row => (

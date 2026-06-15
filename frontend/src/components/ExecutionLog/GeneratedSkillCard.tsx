@@ -39,9 +39,9 @@ function normalizeTriggers(event: SkillGeneratedEvent): EditableTrigger[] {
   return event.triggers.map((condition, index) => ({
     ...condition,
     localId: uid(`trigger_${index}`),
-    label: condition.label ?? condition.field ?? `Trigger ${index + 1}`,
+    label: workflowText(condition.label ?? condition.field ?? `Trigger ${index + 1}`),
     operator: condition.operator ?? 'matches',
-    value: valueText(condition),
+    value: workflowText(valueText(condition)),
   }))
 }
 
@@ -51,8 +51,8 @@ function normalizeSteps(event: SkillGeneratedEvent): EditableStep[] {
       ...step,
       localId: uid(`step_${index}`),
       order: index + 1,
-      title: step.title,
-      summary: step.summary,
+      title: workflowText(step.title),
+      summary: workflowText(step.summary),
     }))
     .sort((a, b) => a.order - b.order)
 }
@@ -85,12 +85,29 @@ function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }
 
+function workflowText(text: string): string {
+  return text
+    .replace(/\bSkill Run ID\b/g, 'Workflow Run ID')
+    .replace(/\bskill_id\b/g, 'workflow_id')
+    .replace(/\{skill_id\}/g, '{workflow_id}')
+    .replace(/\bGenerated skill\b/g, 'Generated workflow')
+    .replace(/\bgenerated skill\b/g, 'generated workflow')
+    .replace(/\bSkill\b/g, 'Workflow')
+    .replace(/\bskill\b/g, 'workflow')
+}
+
 export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGeneratedSkill, skillCreated }: GeneratedSkillCardProps) {
-  const [title, setTitle] = useState(event.title || 'Bank transaction email workflow')
-  const [description, setDescription] = useState(event.summary)
+  const [title, setTitle] = useState(workflowText(event.title || 'Bank transaction email workflow'))
+  const [description, setDescription] = useState(workflowText(event.summary))
   const [triggers, setTriggers] = useState<EditableTrigger[]>(() => normalizeTriggers(event))
   const [steps, setSteps] = useState<EditableStep[]>(() => normalizeSteps(event))
-  const [outcome, setOutcome] = useState<SkillGeneratedEvent['expected_outcome']>(event.expected_outcome)
+  const [outcome, setOutcome] = useState<SkillGeneratedEvent['expected_outcome']>(() => ({
+    ...event.expected_outcome,
+    summary: workflowText(event.expected_outcome.summary || ''),
+    files_created: event.expected_outcome.files_created.map(workflowText),
+    files_modified: event.expected_outcome.files_modified.map(workflowText),
+    safety_checks: event.expected_outcome.safety_checks.map(workflowText),
+  }))
   const [selectedStepIndex, setSelectedStepIndex] = useState(0)
   const [accepted, setAccepted] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -199,19 +216,19 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
           <p className="eyebrow">FDE workflow drafted</p>
           <h3>Generated FDE workflow</h3>
         </div>
-        <span className="generated-badge">{skillCreated ? 'Skill created' : 'Review before creating'}</span>
+        <span className="generated-badge">{skillCreated ? 'Workflow created' : 'Review before creating'}</span>
       </div>
 
       <section className="skill-content-section primary-skill-section">
         <div className="section-title-row">
-          <h4>Skill review</h4>
+          <h4>Workflow review</h4>
           <div className="review-action-row">
             <button className="primary-button compact-primary" type="button" onClick={() => onGenerateSkill?.(reviewedWorkflow())}>
-              {skillCreated ? 'Skill generated' : 'Generate skill'}
+              {skillCreated ? 'Workflow generated' : 'Generate workflow'}
             </button>
             {skillCreated && (
               <button className="secondary-button compact-primary" type="button" onClick={onRunGeneratedSkill}>
-                Run skill once for current target
+                Run workflow once for current target
               </button>
             )}
           </div>
@@ -230,7 +247,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
         {skillCreated && (
           <div className="skill-decision-panel">
             <div>
-              <h4>Keep this skill?</h4>
+              <h4>Keep this workflow?</h4>
               <p>
                 Accept it to keep this workflow available for future matching emails, or leave feedback so the generator can revise it.
               </p>
@@ -241,7 +258,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
                 setFeedbackOpen(false)
                 setFeedbackSent(false)
               }}>
-                Accept and keep skill
+                Accept and keep workflow
               </button>
               <button className="secondary-button compact-primary" type="button" onClick={() => {
                 setAccepted(false)
@@ -251,7 +268,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
               </button>
             </div>
 
-            {accepted && <div className="decision-note accepted">Accepted. This skill is now available in the workflow dashboard.</div>}
+            {accepted && <div className="decision-note accepted">Accepted. This workflow is now available in the workflow dashboard.</div>}
 
             {feedbackOpen && (
               <div className="feedback-box">
@@ -260,7 +277,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
                   <textarea
                     value={feedbackText}
                     onChange={event => setFeedbackText(event.target.value)}
-                    placeholder="Tell the generator what should change before this skill is kept."
+                    placeholder="Tell the generator what should change before this workflow is kept."
                     rows={4}
                   />
                 </label>
@@ -323,7 +340,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
               <div className="trigger-full-rule">
                 <span>Full trigger rule</span>
                 <strong>
-                  {(condition.label ?? `Trigger ${index + 1}`).trim()} {condition.operator ?? 'matches'} {valueText(condition) || 'any matching value'}
+                  {workflowText((condition.label ?? `Trigger ${index + 1}`).trim())} {condition.operator ?? 'matches'} {workflowText(valueText(condition) || 'any matching value')}
                 </strong>
               </div>
             </div>
@@ -336,7 +353,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
           <h4>Issues addressed</h4>
           <div className="issue-list">
             {event.issues.map(issue => (
-              <span key={issue}>{issue}</span>
+              <span key={issue}>{workflowText(issue)}</span>
             ))}
           </div>
         </section>
@@ -350,7 +367,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
               Add step
             </button>
           </div>
-          <div className="workflow-graph-scroll" aria-label="Generated skill workflow steps">
+          <div className="workflow-graph-scroll" aria-label="Generated workflow steps">
             <div className="workflow-graph">
             {steps.map((step, index) => (
               <button
@@ -420,7 +437,7 @@ export function GeneratedSkillCard({ event, onChange, onGenerateSkill, onRunGene
         <div className="created-file-editor-list">
           {outcome.files_created.map((path, index) => (
             <div className="created-file-editor" key={`${path}-${index}`}>
-              <span>{fileName(path) || `Output ${index + 1}`}</span>
+                  <span>{workflowText(fileName(path) || `Output ${index + 1}`)}</span>
               <input value={path} onChange={event => updateCreatedFile(index, event.target.value)} />
               <button className="secondary-button compact danger" type="button" onClick={() => removeCreatedFile(index)}>
                 Remove
