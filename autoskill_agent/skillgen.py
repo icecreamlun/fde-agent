@@ -8,8 +8,6 @@ import re
 import shutil
 import sqlite3
 import subprocess
-import urllib.error
-import urllib.request
 import zipfile
 from copy import deepcopy
 from contextlib import closing
@@ -17,6 +15,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from skillforge_local.llm import complete_text, default_model, load_local_env
 
 
 VALID_SKILL_STATES = {
@@ -202,39 +202,21 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def local_model_config(root: Path | str = ".", timeout_seconds: int = 180) -> LocalModelConfig:
-    root_path = Path(root)
-    config_path = root_path / "config" / "openclaw.json"
-    if config_path.exists():
-        config = read_json(config_path)
-        primary = (
-            config.get("agents", {})
-            .get("defaults", {})
-            .get("model", {})
-            .get("primary", os.environ.get("QWEN_MODEL_TAG", "qwen3-30b-a3b-local"))
-        )
-        provider_name, model = split_provider_model(primary)
-        provider = config.get("models", {}).get("providers", {}).get(provider_name, {})
-        return LocalModelConfig(
-            backend="openclaw-config-openai-compatible",
-            base_url=provider.get("baseUrl", "http://127.0.0.1:11434/v1").rstrip("/"),
-            api_key=provider.get("apiKey", os.environ.get("OLLAMA_API_KEY", "ollama-local")),
-            model=model,
-            timeout_seconds=timeout_seconds,
-        )
+    """Resolve the Anthropic model configuration for the skill planner.
+
+    All AI logic uses the Anthropic API. The key is read from the
+    ANTHROPIC_API_KEY environment variable (or a git-ignored .env.local at the
+    project root). The model defaults to claude-opus-4-8 and can be overridden
+    with SKILLGEN_MODEL / ANTHROPIC_MODEL.
+    """
+    load_local_env(root)
     return LocalModelConfig(
-        backend="ollama-openai-compatible",
-        base_url=os.environ.get("SKILLGEN_MODEL_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/"),
-        api_key=os.environ.get("SKILLGEN_MODEL_API_KEY", os.environ.get("OLLAMA_API_KEY", "ollama-local")),
-        model=os.environ.get("SKILLGEN_MODEL", os.environ.get("QWEN_MODEL_TAG", "qwen3-30b-a3b-local")),
+        backend="anthropic",
+        base_url=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        model=default_model(),
         timeout_seconds=timeout_seconds,
     )
-
-
-def split_provider_model(value: str) -> tuple[str, str]:
-    if "/" in value:
-        provider, model = value.split("/", 1)
-        return provider, model
-    return "ollama", value
 
 
 def call_local_chat_model(
@@ -242,29 +224,19 @@ def call_local_chat_model(
     messages: list[dict[str, str]],
     response_format: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "model": config.model,
-        "messages": messages,
-        "temperature": 0.1,
-        "stream": False,
-    }
-    if response_format:
-        payload["response_format"] = response_format
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        f"{config.base_url}/chat/completions",
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {config.api_key}",
-        },
+    """Call Claude with OpenAI-style messages and return an OpenAI-shaped dict.
+
+    The ``response_format`` argument is accepted for backward compatibility; the
+    JSON contract is enforced by the prompt and parsed downstream.
+    """
+    text = complete_text(
+        messages,
+        model=config.model,
+        timeout_seconds=config.timeout_seconds,
+        api_key=config.api_key or None,
+        base_url=config.base_url,
     )
-    try:
-        with urllib.request.urlopen(request, timeout=config.timeout_seconds) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Local model call failed via {config.base_url}: {exc}") from exc
+    return {"choices": [{"message": {"content": text}}]}
 
 
 def local_model_text_response(response: dict[str, Any]) -> str:
@@ -1106,7 +1078,7 @@ def apply_skill_planner(
     if planner == "deterministic":
         review["planner"] = {"mode": "deterministic", "status": "applied"}
         return review
-    if planner != "local-model":
+    if planner not in ("local-model", "anthropic"):
         review["planner"] = {"mode": planner, "status": "fallback", "error": f"unknown planner: {planner}"}
         return review
 
@@ -1116,7 +1088,7 @@ def apply_skill_planner(
         suggested, applied_fields, warnings = merge_model_plan_into_suggested(review["suggested"], plan)
         review["suggested"] = suggested
         review["planner"] = {
-            "mode": "local-model",
+            "mode": planner,
             "status": "applied",
             "backend": config.backend,
             "base_url": config.base_url,
@@ -1126,7 +1098,7 @@ def apply_skill_planner(
         }
     except Exception as exc:
         review["planner"] = {
-            "mode": "local-model",
+            "mode": planner,
             "status": "fallback",
             "backend": config.backend,
             "base_url": config.base_url,

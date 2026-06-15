@@ -263,7 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     skillgen_review = subparsers.add_parser("skillgen-review", help="Start review from a Section A skill candidate.")
     skillgen_review.add_argument("--candidate-id", default="cand_daily_cash_recon_001")
-    skillgen_review.add_argument("--planner", choices=["deterministic", "local-model"], default="deterministic")
+    skillgen_review.add_argument("--planner", choices=["deterministic", "anthropic", "local-model"], default="deterministic")
     skillgen_review.add_argument("--model-timeout", type=int, default=180)
     skillgen_review.set_defaults(func=cmd_skillgen_review)
 
@@ -293,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     skillgen_demo = subparsers.add_parser("skillgen-demo", help="Run Team B skill-generation demo end-to-end.")
     skillgen_demo.add_argument("--reset", action="store_true")
-    skillgen_demo.add_argument("--planner", choices=["deterministic", "local-model"], default="deterministic")
+    skillgen_demo.add_argument("--planner", choices=["deterministic", "anthropic", "local-model"], default="deterministic")
     skillgen_demo.add_argument("--model-timeout", type=int, default=180)
     skillgen_demo.set_defaults(func=cmd_skillgen_demo)
 
@@ -313,7 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
     imap_poll.add_argument("--events-log", type=Path, default=Path("workspace/events/activity_events.jsonl"))
     imap_poll.add_argument("--limit", type=int, default=None, help="Maximum number of UNSEEN messages to fetch.")
     imap_poll.add_argument("--latest", action="store_true", help="Fetch newest UNSEEN messages first when used with --limit.")
-    imap_poll.add_argument("--openclaw-mode", choices=["openclaw", "mock"], default="openclaw")
+    imap_poll.add_argument("--openclaw-mode", choices=["anthropic", "openclaw", "mock"], default="anthropic")
     imap_poll.add_argument("--openclaw-command", default=None)
     imap_poll.add_argument("--openclaw-timeout", type=int, default=60)
     imap_poll.set_defaults(func=cmd_imap_poll)

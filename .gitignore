@@ -14,3 +14,6 @@ workspace/events/execution_previews.jsonl
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.env
+.env.local
+*.env.local

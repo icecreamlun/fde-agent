@@ -1,52 +1,40 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import shlex
-import subprocess
 from copy import deepcopy
 from typing import Callable, Any
 
+from .llm import complete_text
 
-OpenClawRunner = Callable[[str], str]
+
+ModelRunner = Callable[[str], str]
 
 
 def extract_email_activity_with_openclaw(
     event: dict,
     *,
-    runner: OpenClawRunner | None = None,
-    command: str | None = None,
+    runner: ModelRunner | None = None,
+    command: str | None = None,  # accepted for backward compatibility; ignored
     timeout_seconds: int = 60,
 ) -> dict[str, Any]:
-    prompt = build_openclaw_email_prompt(event)
-    output = runner(prompt) if runner else run_openclaw_prompt(prompt, command=command, timeout_seconds=timeout_seconds)
+    """Extract structured email-activity fields using the Anthropic API."""
+    prompt = build_email_extraction_prompt(event)
+    output = runner(prompt) if runner else run_model_prompt(prompt, timeout_seconds=timeout_seconds)
     payload = _parse_json_object(output)
     return normalize_openclaw_extraction(payload)
 
 
-def run_openclaw_prompt(
-    prompt: str,
-    *,
-    command: str | None = None,
-    timeout_seconds: int = 60,
-) -> str:
-    command_text = command or os.environ.get("SKILLFORGE_OPENCLAW_COMMAND", "openclaw")
-    completed = subprocess.run(
-        shlex.split(command_text),
-        input=prompt,
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=timeout_seconds,
+def run_model_prompt(prompt: str, *, timeout_seconds: int = 60) -> str:
+    """Send the extraction prompt to Claude and return the raw text response."""
+    return complete_text(
+        [{"role": "user", "content": prompt}],
+        max_tokens=1024,
+        timeout_seconds=timeout_seconds,
     )
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip()
-        raise RuntimeError(f"OpenClaw command failed with exit {completed.returncode}: {stderr}")
-    return completed.stdout
 
 
-def build_openclaw_email_prompt(event: dict) -> str:
+def build_email_extraction_prompt(event: dict) -> str:
     payload = event.get("payload", {})
     body_text = str(payload.get("body_text") or payload.get("content_summary") or "")
     return f"""You are SkillForge Local's offline email activity extractor.

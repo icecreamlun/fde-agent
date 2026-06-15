@@ -9,6 +9,29 @@ This workspace wires the downloaded local stack to the existing Qwen GGUF model:
 
 The downloaded stack repos are treated as read-only inputs. Runtime state, configs, and demo workspace files live under `D:\hackathon`.
 
+## AI Backend (Anthropic)
+
+All AI logic in this project runs on the **Anthropic API** (the local Ollama/Qwen and OpenClaw paths have been removed). The model defaults to `claude-opus-4-8`.
+
+Provide your key via the `ANTHROPIC_API_KEY` environment variable. The easiest way is a git-ignored `.env.local` at the project root (loaded automatically at runtime):
+
+```
+cp .env.example .env.local   # then edit .env.local and paste your key
+```
+
+`.env.local` contents:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-opus-4-8   # optional override
+```
+
+Install dependencies (`pip install -r requirements.txt`) — this includes the official `anthropic` SDK. Verify connectivity any time with:
+
+```
+python -m autoskill_agent.cli skillgen-model-check
+```
+
 ## Fast Path
 
 From PowerShell:
@@ -82,16 +105,17 @@ $env:SKILLFORGE_IMAP_PORT="993"
 $env:SKILLFORGE_IMAP_USERNAME="your@gmail.com"
 $env:SKILLFORGE_IMAP_PASSWORD="gmail-app-password"
 $env:SKILLFORGE_IMAP_MAILBOX="INBOX"
-$env:SKILLFORGE_OPENCLAW_COMMAND="openclaw"
 ```
 
-Fetch unread email through IMAP and enrich each message through OpenClaw before writing `activity_events.jsonl`:
+(The Anthropic API key comes from `.env.local` / `ANTHROPIC_API_KEY` — see **AI Backend** above.)
+
+Fetch unread email through IMAP and enrich each message through Claude before writing `activity_events.jsonl`:
 
 ```powershell
-python -m autoskill_agent.cli imap-poll --once --openclaw-mode openclaw
+python -m autoskill_agent.cli imap-poll --once --openclaw-mode anthropic
 ```
 
-For an offline deterministic demo without a live OpenClaw binary:
+For an offline deterministic demo without calling the model:
 
 ```powershell
 python -m autoskill_agent.cli imap-poll --once --openclaw-mode mock
@@ -145,13 +169,13 @@ cd D:\hackathon
 python -m autoskill_agent.cli skillgen-preview match_daily_cash_reconciliation_event_email_bank_2026_06_15
 ```
 
-The default planner is deterministic and does not call a model. To use the local Qwen model through the OpenClaw/Ollama-compatible config:
+The default planner is deterministic and does not call a model. To use the Anthropic model planner (Claude):
 
 ```powershell
 python -m autoskill_agent.cli skillgen-model-check
-python -m autoskill_agent.cli skillgen-review --candidate-id cand_daily_cash_recon_001 --planner local-model
+python -m autoskill_agent.cli skillgen-review --candidate-id cand_daily_cash_recon_001 --planner anthropic
 ```
 
-The local model planner can refine only the review-facing description, workflow steps, expected outcome, and validation rule names. The generated skill is still schema-validated before install, and invalid or unavailable model output falls back to deterministic generation.
+(`--planner local-model` is kept as an alias for `--planner anthropic`.) The model planner can refine only the review-facing description, workflow steps, expected outcome, and validation rule names. The generated skill is still schema-validated before install, and invalid or unavailable model output falls back to deterministic generation.
 
 See `docs/skill-generation.md` for the step-by-step commands and generated artifact map.
