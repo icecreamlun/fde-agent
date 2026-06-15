@@ -1,204 +1,266 @@
-import { useCallback, useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExecutionLog } from './components/ExecutionLog/ExecutionLog'
-import { SkillDashboard } from './components/SkillDashboard/SkillDashboard'
-import StatsPanel from './components/StatsPanel/StatsPanel'
-import { useSkillStream } from './hooks/useSkillStream'
-import { listMatches, approveMatch, previewMatch, rejectMatch } from './api/skillops'
-import type { RunInputs } from './api/skillops'
-import type { ApprovalRequiredEvent, ExecutionCompleteEvent, ExecutionEvent, ReviewedWorkflow } from './types/skill'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  acceptRecommendation,
+  getConnections,
+  getObservations,
+  getRecommendations,
+  getWeeklyReport,
+} from './api/observatory'
+import type { AcceptResult, ConnectionStatus, Observation, Recommendation } from './api/observatory'
 
-function latestApproval(events: ExecutionEvent[]): ApprovalRequiredEvent | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (event.type === 'approval_required') return event
-  }
-  return null
+const usd = (value: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
+
+const hours = (minutes: number) => `${(minutes / 60).toFixed(1)}h`
+
+function timeAgo(iso: string): string {
+  if (!iso) return ''
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return iso
+  const diff = Math.max(0, Date.now() - then)
+  const mins = Math.round(diff / 60000)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.round(hrs / 24)}d ago`
 }
 
-function latestCompletion(events: ExecutionEvent[]): ExecutionCompleteEvent | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (event.type === 'execution_complete') return event
-  }
-  return null
+const SOURCE_LABEL: Record<string, string> = { gmail: 'Gmail', excel: 'Excel', system: 'System' }
+
+function SourceChip({ source }: { source: string }) {
+  return <span className={`source-chip source-${source}`}>{SOURCE_LABEL[source] ?? source}</span>
 }
 
-function latestOutputRaw(events: ExecutionEvent[]): Record<string, unknown> | null {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (event.type === 'step_completed' && event.step_id === 'create_reconciled_spreadsheet') {
-      return event.raw ?? null
-    }
-  }
-  return null
+function ConnectionCard({ conn }: { conn: ConnectionStatus }) {
+  return (
+    <div className="conn-card">
+      <div className="conn-head">
+        <SourceChip source={conn.id} />
+        <span className="conn-status">
+          <span className="conn-dot" /> {conn.status}
+        </span>
+      </div>
+      <p className="conn-desc">{conn.description}</p>
+      <div className="conn-meta">
+        <span>{conn.event_count} events observed</span>
+        {conn.last_event_at ? <span>· last {timeAgo(conn.last_event_at)}</span> : null}
+      </div>
+    </div>
+  )
 }
 
-function numberFrom(raw: Record<string, unknown> | null, key: string): number | null {
-  const value = raw?.[key]
-  return typeof value === 'number' ? value : null
+function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="metric">
+      <div className="metric-value">{value}</div>
+      <div className="metric-label">{label}</div>
+      {sub ? <div className="metric-sub">{sub}</div> : null}
+    </div>
+  )
 }
 
-function stringFrom(raw: Record<string, unknown> | null, key: string): string | null {
-  const value = raw?.[key]
-  return typeof value === 'string' ? value : null
+function RecommendationCard({
+  rec,
+  onAccept,
+  accepting,
+  result,
+  error,
+}: {
+  rec: Recommendation
+  onAccept: (id: string) => void
+  accepting: boolean
+  result?: AcceptResult
+  error?: string
+}) {
+  const installed = rec.status === 'accepted' || result?.status === 'installed'
+  return (
+    <article className={`rec-card ${installed ? 'rec-installed' : ''}`}>
+      <header className="rec-head">
+        <div>
+          <h3>{rec.title}</h3>
+          <div className="rec-apps">
+            {rec.source_apps.map(app => (
+              <SourceChip key={app} source={app} />
+            ))}
+            <span className="rec-confidence">{Math.round(rec.confidence * 100)}% confidence</span>
+          </div>
+        </div>
+        {installed ? <span className="rec-badge">Installed</span> : null}
+      </header>
+
+      <div className="rec-metrics">
+        <Metric label="Time saved / wk" value={hours(rec.roi.time_saved_minutes_per_week)} />
+        <Metric label="Cost saved / wk" value={usd(rec.roi.cost_saved_usd_per_week)} sub={`${usd(rec.roi.cost_saved_usd_per_year)}/yr`} />
+        <Metric label="Frequency" value={rec.roi.frequency.split(' ')[0]} sub={`${rec.roi.occurrences_observed} seen`} />
+        <Metric label="Model cost / wk" value={usd(rec.roi.model_cost_usd_per_week)} />
+      </div>
+
+      <p className="rec-trigger">
+        <strong>Trigger:</strong> {rec.trigger || '—'}
+        {rec.target_artifact ? <> · updates <code>{rec.target_artifact}</code>{rec.target_sheet ? ` / ${rec.target_sheet}` : ''}</> : null}
+      </p>
+
+      {rec.actions.length ? (
+        <details className="rec-actions">
+          <summary>{rec.actions.length} steps in the proposed skill</summary>
+          <ol>
+            {rec.actions.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
+
+      <footer className="rec-foot">
+        {installed ? (
+          <div className="installed-banner">
+            <strong>Skill installed locally.</strong>
+            <code>{result?.local_path ?? '~/.claude/skills'}</code>
+            {result?.skill_md_preview ? (
+              <details className="skill-preview">
+                <summary>Preview SKILL.md</summary>
+                <pre>{result.skill_md_preview}…</pre>
+              </details>
+            ) : null}
+          </div>
+        ) : (
+          <button className="accept-btn" type="button" disabled={accepting} onClick={() => onAccept(rec.id)}>
+            {accepting ? 'Generating skill…' : 'Accept & install skill'}
+          </button>
+        )}
+        {error ? <p className="rec-error">{error}</p> : null}
+      </footer>
+    </article>
+  )
 }
 
-function progressLabel(status: ReturnType<typeof useSkillStream>['status']): string {
-  if (status === 'done') return 'Complete'
-  if (status === 'paused') return 'Review stage'
-  if (status === 'connecting') return 'Connecting'
-  if (status === 'error') return 'Needs attention'
-  if (status === 'streaming') return 'Generating'
-  return 'Ready'
+function ObservationRow({ obs }: { obs: Observation }) {
+  return (
+    <li className="feed-row">
+      <SourceChip source={obs.source} />
+      <span className="feed-summary">{obs.summary}</span>
+      <span className="feed-time">{timeAgo(obs.ts)}</span>
+    </li>
+  )
 }
 
 export default function App() {
   const queryClient = useQueryClient()
-  const [localDecision, setLocalDecision] = useState<{ decision: 'approved' | 'rejected'; actor?: string; timestamp: string } | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [dashboardError, setDashboardError] = useState<string | null>(null)
-  const [reviewedWorkflow, setReviewedWorkflow] = useState<ReviewedWorkflow | null>(null)
-  const [skillCreated, setSkillCreated] = useState(false)
-  const [streamRunKey, setStreamRunKey] = useState(0)
+  const [results, setResults] = useState<Record<string, AcceptResult>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const { data: matches, isLoading } = useQuery({
-    queryKey: ['matches'],
-    queryFn: listMatches,
-    refetchInterval: 10_000,
+  const connections = useQuery({ queryKey: ['connections'], queryFn: getConnections, refetchInterval: 15_000 })
+  const observations = useQuery({ queryKey: ['observations'], queryFn: () => getObservations(20), refetchInterval: 15_000 })
+  const recommendations = useQuery({ queryKey: ['recommendations'], queryFn: getRecommendations })
+  const report = useQuery({ queryKey: ['weekly-report'], queryFn: getWeeklyReport })
+
+  const accept = useMutation({
+    mutationFn: acceptRecommendation,
+    onSuccess: async (result, id) => {
+      if (result.status === 'installed') {
+        setResults(prev => ({ ...prev, [id]: result }))
+        setErrors(prev => ({ ...prev, [id]: '' }))
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['recommendations'] }),
+          queryClient.invalidateQueries({ queryKey: ['weekly-report'] }),
+          queryClient.invalidateQueries({ queryKey: ['connections'] }),
+        ])
+      } else {
+        setErrors(prev => ({ ...prev, [id]: 'The skill could not be generated. Check the API logs.' }))
+      }
+    },
+    onError: (err, id) => {
+      setErrors(prev => ({ ...prev, [id]: err instanceof Error ? err.message : 'Accept failed.' }))
+    },
   })
 
-  const match = matches?.[0] ?? null
-  const matchId = match?.match_id ?? null
-  const { events, status, error } = useSkillStream(matchId, streamRunKey)
-
-  const approvalEvent = latestApproval(events)
-  const completionEvent = latestCompletion(events)
-  const outputRaw = latestOutputRaw(events)
-  const decision = localDecision ?? completionEvent
-  const currentStepLabel = progressLabel(status)
-
-  const runStats = useMemo(() => {
-    const stats = approvalEvent?.proposed_changes.stats
-    if (!stats) return null
-    return {
-      total: numberFrom(outputRaw, 'rows_added') ?? Number(stats.total ?? 0),
-      matched: numberFrom(outputRaw, 'matched_count') ?? Number(stats.matched ?? 0),
-      exceptions: numberFrom(outputRaw, 'exception_count') ?? Number(stats.exceptions ?? 0),
-      outputFile: stringFrom(outputRaw, 'workbook_created') ?? approvalEvent.proposed_changes.files_to_create[0] ?? '',
-    }
-  }, [approvalEvent, outputRaw])
-
-  const handleWorkflowChange = useCallback((workflow: ReviewedWorkflow) => {
-    setReviewedWorkflow(workflow)
-  }, [])
-
-  const handleGenerateSkill = useCallback((workflow: ReviewedWorkflow) => {
-    setReviewedWorkflow(workflow)
-    setSkillCreated(true)
-  }, [])
-
-  async function handleApprove() {
-    if (!matchId) return
-    setActionError(null)
-    try {
-      await approveMatch(matchId, reviewedWorkflow)
-      setLocalDecision({ decision: 'approved', actor: 'analyst_1', timestamp: new Date().toISOString() })
-      await queryClient.invalidateQueries({ queryKey: ['matches'] })
-      await queryClient.invalidateQueries({ queryKey: ['skillops'] })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'The run could not be approved.')
-    }
-  }
-
-  async function handleRunSkill(skillId: string, inputs: RunInputs) {
-    const selectedMatch = matches?.find(item => item.skill_id === skillId) ?? match
-    if (!selectedMatch) {
-      setDashboardError('No local workflow match is available to run.')
-      return
-    }
-    setDashboardError(null)
-    setActionError(null)
-    setLocalDecision(null)
-    setReviewedWorkflow(null)
-    setSkillCreated(false)
-    try {
-      await previewMatch(selectedMatch.match_id, inputs)
-      await queryClient.invalidateQueries({ queryKey: ['matches'] })
-      setStreamRunKey(value => value + 1)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    } catch (err) {
-      setDashboardError(err instanceof Error ? err.message : 'The workflow could not be started.')
-    }
-  }
-
-  function scrollToDashboard() {
-    document.getElementById('workflow-dashboard')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
-  async function handleReject() {
-    if (!matchId) return
-    setActionError(null)
-    try {
-      await rejectMatch(matchId)
-      setLocalDecision({ decision: 'rejected', actor: 'analyst_1', timestamp: new Date().toISOString() })
-      await queryClient.invalidateQueries({ queryKey: ['matches'] })
-      await queryClient.invalidateQueries({ queryKey: ['skillops'] })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'The run could not be rejected.')
-    }
-  }
+  const recs = recommendations.data ?? []
+  const totals = report.data?.totals
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">In-house FDE</p>
-          <h1>FDE-in-house</h1>
+          <p className="eyebrow">In-house Forward Deployed Engineer</p>
+          <h1>Auto-FDE</h1>
           <p className="header-subtitle">
-            Watches repeated operating work, explains the pattern, drafts the FDE workflow, and asks before acting.
+            We watch your connected tools, learn how your team actually works, and recommend what to automate —
+            as reviewable skills you install locally. We never run anything ourselves.
           </p>
         </div>
         <div className="header-actions">
-          <div className={`status-pill status-${status}`}>
+          <div className="status-pill status-streaming">
             <span className="status-dot" />
-            <span>{currentStepLabel}</span>
+            <span>Listening</span>
           </div>
-          <button className="flow-jump-button" type="button" onClick={scrollToDashboard}>
-            <span className="flow-jump-icon" />
-            View workflow dashboard
-          </button>
         </div>
       </header>
 
-      <main className="main-layout">
-        <section className="execution-region">
-          {isLoading || !matchId ? (
-            <div className="empty-state">Loading the latest detected pattern.</div>
-          ) : (
-            <ExecutionLog
-              events={events}
-              onApprove={handleApprove}
-              onReject={handleReject}
-              decision={decision}
-              status={status}
-              error={error}
-              actionError={actionError}
-              onWorkflowChange={handleWorkflowChange}
-              onGenerateSkill={handleGenerateSkill}
-              onRunGeneratedSkill={handleApprove}
-              skillCreated={skillCreated}
-            />
-          )}
+      {/* Connections */}
+      <section className="fde-section">
+        <h2 className="fde-section-title">Connected sources</h2>
+        <div className="conn-grid">
+          {(connections.data ?? []).map(conn => (
+            <ConnectionCard key={conn.id} conn={conn} />
+          ))}
+          {connections.isLoading ? <div className="empty-state">Connecting…</div> : null}
+        </div>
+      </section>
+
+      <main className="fde-main">
+        {/* Left: weekly report + recommendations */}
+        <section className="fde-col-main">
+          <div className="report-card">
+            <div className="report-head">
+              <h2 className="fde-section-title">Weekly FDE report</h2>
+              {report.data ? <span className="report-period">{report.data.period}</span> : null}
+            </div>
+            <p className="report-summary">
+              {report.isLoading ? 'Generating this week’s advisory…' : report.data?.summary}
+            </p>
+            {totals ? (
+              <div className="totals-grid">
+                <Metric label="Workflows found" value={String(totals.workflows_found)} sub={`${totals.workflows_accepted} accepted`} />
+                <Metric label="Time saved / wk" value={hours(totals.time_saved_minutes_per_week)} />
+                <Metric label="Cost saved / wk" value={usd(totals.cost_saved_usd_per_week)} sub={`${usd(totals.cost_saved_usd_per_year)}/yr`} />
+                <Metric label="Model cost / wk" value={usd(totals.model_cost_usd_per_week)} />
+              </div>
+            ) : null}
+          </div>
+
+          <h2 className="fde-section-title">Recommended workflows</h2>
+          <div className="rec-list">
+            {recommendations.isLoading ? <div className="empty-state">Mining your activity for repeated workflows…</div> : null}
+            {!recommendations.isLoading && recs.length === 0 ? (
+              <div className="empty-state">No repeated workflows detected yet. Keep working — we’re watching.</div>
+            ) : null}
+            {recs.map(rec => (
+              <RecommendationCard
+                key={rec.id}
+                rec={rec}
+                onAccept={accept.mutate}
+                accepting={accept.isPending && accept.variables === rec.id}
+                result={results[rec.id]}
+                error={errors[rec.id]}
+              />
+            ))}
+          </div>
         </section>
 
-        <StatsPanel
-          runStats={runStats}
-          status={status}
-        />
+        {/* Right: live observation feed */}
+        <aside className="fde-col-side">
+          <h2 className="fde-section-title">Live activity</h2>
+          <div className="feed-card">
+            <ul className="feed-list">
+              {(observations.data ?? []).map(obs => (
+                <ObservationRow key={`${obs.id}-${obs.ts}`} obs={obs} />
+              ))}
+              {observations.isLoading ? <li className="empty-state">Loading activity…</li> : null}
+            </ul>
+          </div>
+        </aside>
       </main>
-
-      <SkillDashboard activeSkillId={match?.skill_id} onRunSkill={handleRunSkill} runError={dashboardError} />
     </div>
   )
 }

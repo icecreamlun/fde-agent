@@ -9,9 +9,9 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
-from autoskill_agent import skillgen
+from autoskill_agent import observatory, skillgen
 
 
 STEP_IDS = {
@@ -580,8 +580,23 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         try:
+            # --- Phase 1: observe -> recommend surface ---
+            if path == "/api/connections":
+                return self.send_json(observatory.connection_status(self.root))
+            if path == "/api/observations":
+                query = parse_qs(parsed.query)
+                limit = int(query.get("limit", ["25"])[0])
+                return self.send_json(observatory.observation_feed(self.root, limit=limit))
+            if path == "/api/recommendations":
+                return self.send_json(observatory.recommendations(self.root))
+            if path == "/api/report/weekly":
+                query = parse_qs(parsed.query)
+                use_ai = query.get("ai", ["1"])[0] != "0"
+                return self.send_json(observatory.weekly_report(self.root, use_ai=use_ai))
+            # --- legacy execution endpoints (unused by the Phase 1 UI) ---
             if path == "/api/skills/matches":
                 return self.send_json(list_matches(self.root))
             if path == "/api/skillops/summary":
@@ -613,6 +628,11 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             body = self.read_json_body()
+            match = re.fullmatch(r"/api/recommendations/([^/]+)/accept", path)
+            if match:
+                result = observatory.accept_recommendation(self.root, unquote(match.group(1)))
+                status = HTTPStatus.OK if result.get("status") == "installed" else HTTPStatus.BAD_REQUEST
+                return self.send_json(result, status=status)
             match = re.fullmatch(r"/api/skills/matches/([^/]+)/approve", path)
             if match:
                 execution = skillgen.approve_match(

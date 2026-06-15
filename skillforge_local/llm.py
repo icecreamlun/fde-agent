@@ -16,9 +16,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-# Latest, most capable Claude model by default. Override with SKILLGEN_MODEL or
-# ANTHROPIC_MODEL if a different tier is wanted (e.g. claude-sonnet-4-6).
-DEFAULT_MODEL = "claude-opus-4-8"
+# Default to Sonnet 4.6 — strong and noticeably cheaper than Opus, which fits the
+# high-volume observe / extract / generate workload. Override with SKILLGEN_MODEL or
+# ANTHROPIC_MODEL for a different tier (e.g. claude-opus-4-8 for the weekly report).
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 def default_model() -> str:

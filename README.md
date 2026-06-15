@@ -11,7 +11,7 @@ The downloaded stack repos are treated as read-only inputs. Runtime state, confi
 
 ## AI Backend (Anthropic)
 
-All AI logic in this project runs on the **Anthropic API** (the local Ollama/Qwen and OpenClaw paths have been removed). The model defaults to `claude-opus-4-8`.
+All AI logic in this project runs on the **Anthropic API** (the local Ollama/Qwen and OpenClaw paths have been removed). The model defaults to `claude-sonnet-4-6` (strong quality at lower cost; override per-task as needed).
 
 Provide your key via the `ANTHROPIC_API_KEY` environment variable. The easiest way is a git-ignored `.env.local` at the project root (loaded automatically at runtime):
 
@@ -23,7 +23,7 @@ cp .env.example .env.local   # then edit .env.local and paste your key
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-opus-4-8   # optional override
+ANTHROPIC_MODEL=claude-sonnet-4-6   # optional override
 ```
 
 Install dependencies (`pip install -r requirements.txt`) — this includes the official `anthropic` SDK. Verify connectivity any time with:
