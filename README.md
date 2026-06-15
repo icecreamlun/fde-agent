@@ -162,7 +162,18 @@ npm ci
 npm run dev -- --host 127.0.0.1 --port 5174
 ```
 
-Open `http://127.0.0.1:5174`. The Vite dev server proxies `/api` to the SkillForge backend on port `8017`. To return the demo match to the human-approval state before presenting:
+Open `http://127.0.0.1:5174`. The Vite dev server proxies `/api` to the SkillForge backend on port `8017`.
+
+**Preview the UI with no backend and no local data access** (pure mock data — nothing reads your machine's files):
+
+```bash
+cd frontend
+VITE_USE_MOCKS=1 npm run dev
+```
+
+This serves the full observe → recommend dashboard (connections, weekly report, recommendations, skills + per-skill diagrams, invocation trend, live activity) entirely from in-browser mocks.
+
+To return the demo match to the human-approval state before presenting:
 
 ```powershell
 cd D:\hackathon

@@ -4,6 +4,7 @@ import { getSkills } from '../api/observatory'
 import type { SkillItem } from '../api/observatory'
 import { SourceChip } from '../components/common'
 import { SkillDiagram } from '../components/SkillDiagram'
+import { TrendChart } from '../components/TrendChart'
 
 function SkillDetail({ skill }: { skill: SkillItem }) {
   return (
@@ -32,6 +33,9 @@ function SkillDetail({ skill }: { skill: SkillItem }) {
           <code>{skill.local_path}</code>
         </p>
       ) : null}
+
+      <h4 className="skill-sub">Invocation trend</h4>
+      <TrendChart data={skill.trend ?? []} />
 
       <h4 className="skill-sub">What this skill does</h4>
       <SkillDiagram graph={skill.graph} />

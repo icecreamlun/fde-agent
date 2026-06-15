@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getWeeklyReport } from '../api/observatory'
 import { Metric } from '../components/common'
+import { TrendChart } from '../components/TrendChart'
 import { hours, usd } from '../lib/format'
 
 export function OverviewView() {
@@ -25,6 +26,12 @@ export function OverviewView() {
             <Metric label="Model cost / wk" value={usd(totals.model_cost_usd_per_week)} />
           </div>
         ) : null}
+      </div>
+
+      <div className="panel">
+        <h3 className="fde-section-title">Skill invocation trend</h3>
+        <p className="panel-sub">How often your installed skills have run, by day.</p>
+        <TrendChart data={report.data?.usage_trend ?? []} />
       </div>
 
       <p className="view-note">

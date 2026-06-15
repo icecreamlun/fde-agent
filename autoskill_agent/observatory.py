@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -232,6 +233,34 @@ def recommendations(root: Path | str) -> list[dict[str, Any]]:
 # Weekly FDE report
 # ---------------------------------------------------------------------------
 
+def usage_trend(root: Path | str, skill_id: str | None = None, *, days: int = 8) -> list[dict[str, Any]]:
+    """Daily skill-invocation counts for the last `days` days (oldest first).
+
+    Reads skill_execution events from the event log; returns zeros when there is
+    no run history yet."""
+    root = _root(root)
+    log = root / "workspace" / "events" / "events.jsonl"
+    counts: dict[str, int] = {}
+    try:
+        events = skillgen.read_jsonl(log) if log.exists() else []
+    except Exception:
+        events = []
+    for event in events:
+        if not isinstance(event, dict) or event.get("type") != "skill_execution":
+            continue
+        if skill_id and event.get("skill_id") != skill_id:
+            continue
+        day = str(event.get("timestamp") or "")[:10]
+        if day:
+            counts[day] = counts.get(day, 0) + 1
+    today = datetime.now(timezone.utc).date()
+    series = []
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        series.append({"label": d.strftime("%m-%d"), "value": counts.get(d.isoformat(), 0)})
+    return series
+
+
 def _report_totals(recs: list[dict[str, Any]]) -> dict[str, Any]:
     proposed = [r for r in recs if r["status"] != "accepted"]
     return {
@@ -294,6 +323,7 @@ def weekly_report(root: Path | str, *, use_ai: bool = True) -> dict[str, Any]:
         "generated_at": skillgen.utc_now(),
         "summary": summary,
         "totals": totals,
+        "usage_trend": usage_trend(root),
         "recommendations": recs,
     }
 
@@ -440,12 +470,14 @@ def skills_inventory(root: Path | str) -> list[dict[str, Any]]:
             skill_id = skill.get("skill_id", "")
             if skill_id in out:
                 continue
-            out[skill_id] = _skill_summary(
+            summary = _skill_summary(
                 skill,
                 installed_locally=installed_locally,
                 local_path=str(d) if installed_locally else "",
                 usage=usage_by_id.get(skill_id, {}),
             )
+            summary["trend"] = usage_trend(root, skill_id)
+            out[skill_id] = summary
 
     ingest(local_skills_dir(), installed_locally=True)
     ingest(root / "workspace" / "skills", installed_locally=False)

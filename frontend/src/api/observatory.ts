@@ -56,11 +56,17 @@ export interface ReportTotals {
   model_cost_usd_per_week: number
 }
 
+export interface TrendPoint {
+  label: string
+  value: number
+}
+
 export interface WeeklyReport {
   period: string
   generated_at: string
   summary: string
   totals: ReportTotals
+  usage_trend: TrendPoint[]
   recommendations: Recommendation[]
 }
 
@@ -128,6 +134,7 @@ export interface SkillItem {
   invocations: number
   matches: number
   graph: SkillGraph
+  trend: TrendPoint[]
 }
 
 export async function getSkills(): Promise<SkillItem[]> {
