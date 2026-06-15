@@ -7,17 +7,18 @@ import { SkillsView } from './views/SkillsView'
 import { WorkflowsView } from './views/WorkflowsView'
 import { ActivityView } from './views/ActivityView'
 import { ConnectionsView } from './views/ConnectionsView'
+import { NavIcon } from './components/NavIcon'
 
 type ViewId = 'connections' | 'activity' | 'recommendations' | 'skills' | 'workflows' | 'overview'
 
-// Ordered to match the user journey: connect → observe → skill ideas → your skills → org workflows → report.
-const NAV: { id: ViewId; icon: string; label: string; hint: string }[] = [
-  { id: 'connections', icon: '🔌', label: 'Connections', hint: '1 · Connect your tools' },
-  { id: 'activity', icon: '📡', label: 'Activity', hint: '2 · What we observe' },
-  { id: 'recommendations', icon: '✨', label: 'Recommendations', hint: '3 · Tasks to turn into skills' },
-  { id: 'skills', icon: '🧩', label: 'Skills', hint: '4 · Your generated skills' },
-  { id: 'workflows', icon: '🗺️', label: 'Workflows', hint: '5 · Org workflows to deploy' },
-  { id: 'overview', icon: '📊', label: 'Overview', hint: '6 · Weekly FDE report' },
+// Ordered top→bottom to match the journey: connect → observe → skills → workflows → report.
+const NAV: { id: ViewId; label: string }[] = [
+  { id: 'connections', label: 'Connections' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'recommendations', label: 'Recommendations' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'workflows', label: 'Workflows' },
+  { id: 'overview', label: 'Overview' },
 ]
 
 const TITLES: Record<ViewId, string> = {
@@ -46,9 +47,9 @@ export default function App() {
   return (
     <div className="fde-layout">
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <p className="eyebrow">In-house FDE</p>
-          <h1>Auto-FDE</h1>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-name">Auto&#8202;FDE</span>
         </div>
         <nav className="nav">
           {NAV.map(item => {
@@ -60,20 +61,16 @@ export default function App() {
                 className={`nav-item ${view === item.id ? 'active' : ''}`}
                 onClick={() => setView(item.id)}
               >
-                <span className="nav-icon">{item.icon}</span>
-                <span className="nav-text">
-                  <span className="nav-label">
-                    {item.label}
-                    {badge ? <span className="nav-badge">{badge}</span> : null}
-                  </span>
-                  <span className="nav-hint">{item.hint}</span>
-                </span>
+                <NavIcon name={item.id} />
+                <span className="nav-label">{item.label}</span>
+                {badge ? <span className="nav-badge">{badge}</span> : null}
               </button>
             )
           })}
         </nav>
         <div className="sidebar-foot">
-          <span className="status-dot" /> Listening
+          <span className="live-dot" />
+          <span>Listening</span>
         </div>
       </aside>
 
