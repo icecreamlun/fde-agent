@@ -348,3 +348,105 @@ def accept_recommendation(root: Path | str, candidate_id: str, *, planner: str =
         "skill_md_preview": preview,
         "planner": (review.get("planner") or {}).get("mode", planner),
     }
+
+
+# ---------------------------------------------------------------------------
+# Skills inventory (for the Skills panel + per-skill diagram)
+# ---------------------------------------------------------------------------
+
+def _skill_graph(skill: dict[str, Any]) -> dict[str, Any]:
+    workflow = skill.get("workflow", {}) if isinstance(skill.get("workflow"), dict) else {}
+    raw_steps = [s for s in workflow.get("steps", []) if isinstance(s, dict)]
+    steps = []
+    for s in sorted(raw_steps, key=lambda s: s.get("order", 0)):
+        steps.append(
+            {
+                "order": int(s.get("order") or len(steps) + 1),
+                "id": s.get("id") or "",
+                "title": s.get("title") or str(s.get("id") or "Step").replace("_", " ").title(),
+                "type": s.get("type") or "",
+                "summary": s.get("summary") or "",
+            }
+        )
+    triggers = skill.get("triggers", [])
+    trigger_label = ""
+    if triggers and isinstance(triggers[0], dict):
+        trigger_label = triggers[0].get("label") or triggers[0].get("event_type") or ""
+    expected = workflow.get("expected_outcome", {}) if isinstance(workflow.get("expected_outcome"), dict) else {}
+    return {
+        "trigger": trigger_label or "New matching event",
+        "steps": steps,
+        "outcome": expected.get("summary") or "",
+    }
+
+
+def _skill_apps(skill: dict[str, Any]) -> list[str]:
+    apps: set[str] = set()
+    resources = skill.get("resources", {}) if isinstance(skill.get("resources"), dict) else {}
+    items = (resources.get("inputs", []) or []) + (resources.get("outputs", []) or [])
+    for io in items:
+        kind = str(io.get("type", "")).lower() if isinstance(io, dict) else ""
+        if "xlsx" in kind or "workbook" in kind or "sheet" in kind:
+            apps.add("excel")
+        if "email" in kind or "draft" in kind:
+            apps.add("gmail")
+    return sorted(apps) or ["excel"]
+
+
+def _skill_summary(skill: dict[str, Any], *, installed_locally: bool, local_path: str, usage: dict[str, Any]) -> dict[str, Any]:
+    skill_id = skill.get("skill_id", "")
+    workflow = skill.get("workflow", {}) if isinstance(skill.get("workflow"), dict) else {}
+    steps = workflow.get("steps", []) if isinstance(workflow.get("steps"), list) else []
+    return {
+        "skill_id": skill_id,
+        "name": skill.get("name") or skill_id.replace("_", " ").title(),
+        "description": skill.get("description") or "",
+        "status": skill.get("status") or "active",
+        "source_workflow": (skill.get("source_candidate") or {}).get("candidate_id") or skill_id,
+        "step_count": len(steps),
+        "source_apps": _skill_apps(skill),
+        "guardrails": [str(g) for g in skill.get("guardrails", []) if g],
+        "installed_locally": installed_locally,
+        "local_path": local_path,
+        "invocations": int(usage.get("runs", 0) or 0),
+        "matches": int(usage.get("matches", 0) or 0),
+        "graph": _skill_graph(skill),
+    }
+
+
+def skills_inventory(root: Path | str) -> list[dict[str, Any]]:
+    """List generated/installed skills with per-skill workflow graphs."""
+    root = _root(root)
+    usage_by_id: dict[str, dict[str, Any]] = {}
+    try:
+        for item in skillgen.skillops_summary(root).get("skills", []):
+            usage_by_id[item.get("skill_id")] = {"runs": item.get("runs", 0), "matches": item.get("matches", 0)}
+    except Exception:
+        pass
+
+    out: dict[str, dict[str, Any]] = {}
+
+    def ingest(base: Path, installed_locally: bool) -> None:
+        if not base.exists():
+            return
+        for d in sorted(base.iterdir()):
+            skill_json = d / "skill.json"
+            if not (d.is_dir() and skill_json.exists()):
+                continue
+            try:
+                skill = json.loads(skill_json.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            skill_id = skill.get("skill_id", "")
+            if skill_id in out:
+                continue
+            out[skill_id] = _skill_summary(
+                skill,
+                installed_locally=installed_locally,
+                local_path=str(d) if installed_locally else "",
+                usage=usage_by_id.get(skill_id, {}),
+            )
+
+    ingest(local_skills_dir(), installed_locally=True)
+    ingest(root / "workspace" / "skills", installed_locally=False)
+    return list(out.values())

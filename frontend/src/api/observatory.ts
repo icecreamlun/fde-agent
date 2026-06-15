@@ -99,3 +99,38 @@ export async function acceptRecommendation(id: string): Promise<AcceptResult> {
   const { data } = await client.post<AcceptResult>(`/api/recommendations/${id}/accept`)
   return data
 }
+
+export interface SkillStep {
+  order: number
+  id: string
+  title: string
+  type: string
+  summary: string
+}
+
+export interface SkillGraph {
+  trigger: string
+  steps: SkillStep[]
+  outcome: string
+}
+
+export interface SkillItem {
+  skill_id: string
+  name: string
+  description: string
+  status: string
+  source_workflow: string
+  step_count: number
+  source_apps: string[]
+  guardrails: string[]
+  installed_locally: boolean
+  local_path: string
+  invocations: number
+  matches: number
+  graph: SkillGraph
+}
+
+export async function getSkills(): Promise<SkillItem[]> {
+  const { data } = await client.get<SkillItem[]>('/api/skills')
+  return data
+}

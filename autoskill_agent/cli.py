@@ -8,6 +8,7 @@ from autoskill_agent import core, section_a_integration, skillgen
 from skillforge_local.excel_writer import ensure_onboarding_tracker
 from skillforge_local.imap_collector import fetch_unseen_once
 from skillforge_local.imap_config import load_imap_config
+from skillforge_local import excel_watcher
 from skillforge_local.io_jsonl import append_jsonl
 from skillforge_local.openclaw_email import (
     enrich_email_event,
@@ -211,6 +212,23 @@ def cmd_email_to_excel(args: argparse.Namespace) -> int:
     return 0 if summary["counts"]["error"] == 0 else 2
 
 
+def cmd_excel_watch(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    events_log = _workspace_path(root, args.events_log)
+    target = _workspace_path(root, args.path)
+    count = excel_watcher.watch(
+        root,
+        target,
+        events_log,
+        interval=args.interval,
+        actor=args.actor,
+        once=args.once,
+    )
+    if args.once:
+        print(json.dumps({"status": "ok", "events_emitted": count, "events_log": str(events_log)}, indent=2))
+    return 0
+
+
 def _workspace_path(root: Path, path: Path | str) -> Path:
     value = Path(path).expanduser()
     return value if value.is_absolute() else root / value
@@ -317,6 +335,14 @@ def build_parser() -> argparse.ArgumentParser:
     imap_poll.add_argument("--openclaw-command", default=None)
     imap_poll.add_argument("--openclaw-timeout", type=int, default=60)
     imap_poll.set_defaults(func=cmd_imap_poll)
+
+    excel_watch = subparsers.add_parser("excel-watch", help="Watch local .xlsx files and record changes as activity events.")
+    excel_watch.add_argument("--path", default="workspace/workbooks", help="Workbook file or directory to watch.")
+    excel_watch.add_argument("--events-log", type=Path, default=Path("workspace/events/activity_events.jsonl"))
+    excel_watch.add_argument("--interval", type=float, default=2.0)
+    excel_watch.add_argument("--actor", default="excel_watch")
+    excel_watch.add_argument("--once", action="store_true", help="Single pass instead of a watch loop.")
+    excel_watch.set_defaults(func=cmd_excel_watch)
 
     email_to_excel = subparsers.add_parser("email-to-excel", help="Write OpenClaw-enriched email activity events into Excel.")
     email_to_excel.add_argument("--workbook", required=True, type=Path)
