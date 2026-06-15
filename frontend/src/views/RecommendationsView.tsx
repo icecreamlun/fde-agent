@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { acceptRecommendation, getRecommendations } from '../api/observatory'
 import type { AcceptResult, Recommendation } from '../api/observatory'
 import { Metric, SourceChip } from '../components/common'
-import { hours, usd } from '../lib/format'
+import { cost, hours } from '../lib/format'
 
 function RecommendationCard({
   rec,
@@ -36,9 +36,9 @@ function RecommendationCard({
 
       <div className="rec-metrics">
         <Metric label="Time saved / wk" value={hours(rec.roi.time_saved_minutes_per_week)} />
-        <Metric label="Cost saved / wk" value={usd(rec.roi.cost_saved_usd_per_week)} sub={`${usd(rec.roi.cost_saved_usd_per_year)}/yr`} />
+        <Metric label="Productivity" value={`${rec.roi.throughput_multiplier}x`} sub="throughput on this task" />
+        <Metric label="Added AI cost / wk" value={cost(rec.roi.added_ai_cost_usd_per_week)} sub={`${cost(rec.roi.added_ai_cost_usd_per_year)}/yr`} />
         <Metric label="Frequency" value={rec.roi.frequency.split(' ')[0]} sub={`${rec.roi.occurrences_observed} seen`} />
-        <Metric label="Model cost / wk" value={usd(rec.roi.model_cost_usd_per_week)} />
       </div>
 
       <p className="rec-trigger">

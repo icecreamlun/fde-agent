@@ -1,40 +1,46 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getRecommendations, getSkills } from './api/observatory'
+import { getRecommendations, getSkills, getWorkflows } from './api/observatory'
 import { OverviewView } from './views/OverviewView'
 import { RecommendationsView } from './views/RecommendationsView'
 import { SkillsView } from './views/SkillsView'
+import { WorkflowsView } from './views/WorkflowsView'
 import { ActivityView } from './views/ActivityView'
 import { ConnectionsView } from './views/ConnectionsView'
 
-type ViewId = 'overview' | 'recommendations' | 'skills' | 'activity' | 'connections'
+type ViewId = 'connections' | 'activity' | 'recommendations' | 'skills' | 'workflows' | 'overview'
 
+// Ordered to match the user journey: connect → observe → skill ideas → your skills → org workflows → report.
 const NAV: { id: ViewId; icon: string; label: string; hint: string }[] = [
-  { id: 'overview', icon: '📊', label: 'Overview', hint: 'Weekly FDE report' },
-  { id: 'recommendations', icon: '✨', label: 'Recommendations', hint: 'Workflows to automate' },
-  { id: 'skills', icon: '🧩', label: 'Skills', hint: 'Generated & installed' },
-  { id: 'activity', icon: '📡', label: 'Activity', hint: 'Live event feed' },
-  { id: 'connections', icon: '🔌', label: 'Connections', hint: 'Connected sources' },
+  { id: 'connections', icon: '🔌', label: 'Connections', hint: '1 · Connect your tools' },
+  { id: 'activity', icon: '📡', label: 'Activity', hint: '2 · What we observe' },
+  { id: 'recommendations', icon: '✨', label: 'Recommendations', hint: '3 · Tasks to turn into skills' },
+  { id: 'skills', icon: '🧩', label: 'Skills', hint: '4 · Your generated skills' },
+  { id: 'workflows', icon: '🗺️', label: 'Workflows', hint: '5 · Org workflows to deploy' },
+  { id: 'overview', icon: '📊', label: 'Overview', hint: '6 · Weekly FDE report' },
 ]
 
 const TITLES: Record<ViewId, string> = {
-  overview: 'Overview',
-  recommendations: 'Recommended workflows',
-  skills: 'Skills',
-  activity: 'Live activity',
   connections: 'Connected sources',
+  activity: 'Live activity',
+  recommendations: 'Tasks to turn into skills',
+  skills: 'Your skills',
+  workflows: 'Org workflows to deploy',
+  overview: 'Weekly FDE report',
 }
 
 export default function App() {
-  const [view, setView] = useState<ViewId>('overview')
+  const [view, setView] = useState<ViewId>('connections')
 
   // Lightweight queries for the sidebar count badges (shared cache with views).
   const recommendations = useQuery({ queryKey: ['recommendations'], queryFn: getRecommendations })
   const skills = useQuery({ queryKey: ['skills'], queryFn: getSkills })
+  const workflows = useQuery({ queryKey: ['workflows'], queryFn: getWorkflows })
 
   const badges: Partial<Record<ViewId, number>> = {
     recommendations: recommendations.data?.filter(r => r.status !== 'accepted').length,
     skills: skills.data?.length,
+    workflows: workflows.data?.length,
   }
 
   return (
@@ -75,11 +81,12 @@ export default function App() {
         <header className="content-header">
           <h2 className="content-title">{TITLES[view]}</h2>
         </header>
-        {view === 'overview' ? <OverviewView /> : null}
+        {view === 'connections' ? <ConnectionsView /> : null}
+        {view === 'activity' ? <ActivityView /> : null}
         {view === 'recommendations' ? <RecommendationsView /> : null}
         {view === 'skills' ? <SkillsView /> : null}
-        {view === 'activity' ? <ActivityView /> : null}
-        {view === 'connections' ? <ConnectionsView /> : null}
+        {view === 'workflows' ? <WorkflowsView /> : null}
+        {view === 'overview' ? <OverviewView /> : null}
       </main>
     </div>
   )

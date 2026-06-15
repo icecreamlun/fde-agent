@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getWeeklyReport } from '../api/observatory'
 import { Metric } from '../components/common'
 import { TrendChart } from '../components/TrendChart'
-import { hours, usd } from '../lib/format'
+import { cost, hours } from '../lib/format'
 
 export function OverviewView() {
   const report = useQuery({ queryKey: ['weekly-report'], queryFn: getWeeklyReport })
@@ -20,10 +20,10 @@ export function OverviewView() {
         </p>
         {totals ? (
           <div className="totals-grid">
+            <Metric label="Time freed / wk" value={hours(totals.time_saved_minutes_per_week)} sub={`≈ ${totals.fte_equivalent} FTE`} />
+            <Metric label="Productivity" value={`${totals.productivity_multiplier}x`} sub="on automated tasks" />
+            <Metric label="Added AI cost / wk" value={cost(totals.added_ai_cost_usd_per_week)} sub={`${cost(totals.added_ai_cost_usd_per_year)}/yr`} />
             <Metric label="Workflows found" value={String(totals.workflows_found)} sub={`${totals.workflows_accepted} accepted`} />
-            <Metric label="Time saved / wk" value={hours(totals.time_saved_minutes_per_week)} />
-            <Metric label="Cost saved / wk" value={usd(totals.cost_saved_usd_per_week)} sub={`${usd(totals.cost_saved_usd_per_year)}/yr`} />
-            <Metric label="Model cost / wk" value={usd(totals.model_cost_usd_per_week)} />
           </div>
         ) : null}
       </div>

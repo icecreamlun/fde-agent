@@ -25,9 +25,11 @@ export interface Roi {
   minutes_per_run: number
   runs_per_week: number
   time_saved_minutes_per_week: number
-  cost_saved_usd_per_week: number
-  cost_saved_usd_per_year: number
-  model_cost_usd_per_week: number
+  time_saved_hours_per_week: number
+  throughput_multiplier: number
+  est_tokens_per_run: number
+  added_ai_cost_usd_per_week: number
+  added_ai_cost_usd_per_year: number
 }
 
 export interface Recommendation {
@@ -51,9 +53,12 @@ export interface ReportTotals {
   workflows_proposed: number
   workflows_accepted: number
   time_saved_minutes_per_week: number
-  cost_saved_usd_per_week: number
-  cost_saved_usd_per_year: number
-  model_cost_usd_per_week: number
+  time_saved_hours_per_week: number
+  fte_equivalent: number
+  productivity_multiplier: number
+  added_ai_cost_usd_per_week: number
+  added_ai_cost_usd_per_year: number
+  observation_cost_usd_per_week?: number
 }
 
 export interface TrendPoint {
@@ -139,5 +144,32 @@ export interface SkillItem {
 
 export async function getSkills(): Promise<SkillItem[]> {
   const { data } = await client.get<SkillItem[]>('/api/skills')
+  return data
+}
+
+export interface WorkflowImpact {
+  people_involved: number
+  runs_per_week: number
+  team_hours_saved_per_week: number
+  fte_equivalent: number
+  productivity_multiplier: number
+  added_ai_cost_usd_per_week: number
+  added_ai_cost_usd_per_year: number
+}
+
+export interface WorkflowRec {
+  id: string
+  name: string
+  description: string
+  composed_of: string[]
+  source_apps: string[]
+  status: string
+  priority: string
+  fde_recommendation: string
+  impact: WorkflowImpact
+}
+
+export async function getWorkflows(): Promise<WorkflowRec[]> {
+  const { data } = await client.get<WorkflowRec[]>('/api/workflows')
   return data
 }

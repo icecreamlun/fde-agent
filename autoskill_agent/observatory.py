@@ -23,10 +23,18 @@ from autoskill_agent import skillgen
 from skillforge_local.llm import complete_text
 
 # Heuristic ROI assumptions (clearly estimates; tune per customer later).
+# Automation does NOT cut spend — it adds AI cost. The win is time + throughput.
 RUNS_PER_WEEK = 5  # daily workflows run on business days
-SAVE_FACTOR = 0.8  # automation handles most of the work; humans still review
-HOURLY_RATE_USD = 75.0  # loaded cost of a finance analyst hour
-MODEL_COST_PER_RUN_USD = 0.06  # rough Sonnet cost per run
+SAVE_FACTOR = 0.8  # share of the manual time the skill removes (human still reviews)
+
+# Token-based pricing for the added AI cost (Claude Sonnet 4.6, USD per token).
+PRICE_IN_PER_TOKEN = 3.0 / 1_000_000
+PRICE_OUT_PER_TOKEN = 15.0 / 1_000_000
+# Continuous observation/classification runs on a cheaper model (Haiku 4.5).
+OBS_PRICE_IN_PER_TOKEN = 1.0 / 1_000_000
+OBS_PRICE_OUT_PER_TOKEN = 5.0 / 1_000_000
+OBS_TOKENS_IN = 2500
+OBS_TOKENS_OUT = 250
 
 # Which connected sources we present in onboarding.
 SOURCE_DEFS = [
@@ -181,21 +189,33 @@ def _source_apps(candidate: dict[str, Any]) -> list[str]:
 def _roi(candidate: dict[str, Any]) -> dict[str, Any]:
     evidence = candidate.get("evidence", {}) if isinstance(candidate.get("evidence"), dict) else {}
     pattern = candidate.get("pattern", {}) if isinstance(candidate.get("pattern"), dict) else {}
+    suggested = candidate.get("suggested_skill", {}) if isinstance(candidate.get("suggested_skill"), dict) else {}
     batch = int(evidence.get("daily_batch_size") or 0)
     episodes = int(pattern.get("episode_count") or len(evidence.get("episode_ids") or []) or 0)
+    steps = len([a for a in suggested.get("actions", []) if a]) or 6
+
     minutes_per_run = max(20, round(batch * 0.8)) if batch else 30
-    time_saved_week = round(minutes_per_run * RUNS_PER_WEEK * SAVE_FACTOR)
-    cost_saved_week = round(time_saved_week / 60 * HOURLY_RATE_USD, 2)
-    model_cost_week = round(MODEL_COST_PER_RUN_USD * RUNS_PER_WEEK, 2)
+    saved_per_run = round(minutes_per_run * SAVE_FACTOR)
+    residual = max(1, minutes_per_run - saved_per_run)  # human review/oversight left
+    throughput = round(minutes_per_run / residual, 1)
+    time_saved_week = saved_per_run * RUNS_PER_WEEK
+
+    # Added AI cost, estimated from the tokens each run sends/receives.
+    est_in = 4000 + batch * 400  # context grows with the rows the model reads
+    est_out = 800 + steps * 150
+    added_per_run = est_in * PRICE_IN_PER_TOKEN + est_out * PRICE_OUT_PER_TOKEN
+    added_week = round(added_per_run * RUNS_PER_WEEK, 2)
     return {
         "occurrences_observed": episodes,
         "frequency": "daily (business days)",
         "minutes_per_run": minutes_per_run,
         "runs_per_week": RUNS_PER_WEEK,
         "time_saved_minutes_per_week": time_saved_week,
-        "cost_saved_usd_per_week": cost_saved_week,
-        "cost_saved_usd_per_year": round(cost_saved_week * 52, 2),
-        "model_cost_usd_per_week": model_cost_week,
+        "time_saved_hours_per_week": round(time_saved_week / 60, 1),
+        "throughput_multiplier": throughput,
+        "est_tokens_per_run": est_in + est_out,
+        "added_ai_cost_usd_per_week": added_week,
+        "added_ai_cost_usd_per_year": round(added_week * 52, 2),
     }
 
 
@@ -225,7 +245,7 @@ def recommendations(root: Path | str) -> list[dict[str, Any]]:
     root = _root(root)
     accepted = _accepted_ids(root)
     rows = [_recommendation(root, candidate, accepted) for candidate in _candidate_rows(root) if isinstance(candidate, dict)]
-    rows.sort(key=lambda r: r["roi"]["cost_saved_usd_per_week"], reverse=True)
+    rows.sort(key=lambda r: r["roi"]["time_saved_minutes_per_week"], reverse=True)
     return rows
 
 
@@ -261,28 +281,40 @@ def usage_trend(root: Path | str, skill_id: str | None = None, *, days: int = 8)
     return series
 
 
+def _observation_cost_week(root: Path) -> float:
+    """Estimated weekly AI cost of continuously classifying observed events."""
+    per_event = OBS_TOKENS_IN * OBS_PRICE_IN_PER_TOKEN + OBS_TOKENS_OUT * OBS_PRICE_OUT_PER_TOKEN
+    weekly_events = max(len(observation_feed(root, limit=10_000)), 1) * 5  # treat feed as ~1 day
+    return round(per_event * weekly_events, 2)
+
+
 def _report_totals(recs: list[dict[str, Any]]) -> dict[str, Any]:
     proposed = [r for r in recs if r["status"] != "accepted"]
+    minutes = sum(r["roi"]["time_saved_minutes_per_week"] for r in recs)
+    added = round(sum(r["roi"]["added_ai_cost_usd_per_week"] for r in recs), 2)
+    throughputs = [r["roi"]["throughput_multiplier"] for r in recs] or [1.0]
     return {
         "workflows_found": len(recs),
         "workflows_proposed": len(proposed),
         "workflows_accepted": len(recs) - len(proposed),
-        "time_saved_minutes_per_week": sum(r["roi"]["time_saved_minutes_per_week"] for r in recs),
-        "cost_saved_usd_per_week": round(sum(r["roi"]["cost_saved_usd_per_week"] for r in recs), 2),
-        "cost_saved_usd_per_year": round(sum(r["roi"]["cost_saved_usd_per_year"] for r in recs), 2),
-        "model_cost_usd_per_week": round(sum(r["roi"]["model_cost_usd_per_week"] for r in recs), 2),
+        "time_saved_minutes_per_week": minutes,
+        "time_saved_hours_per_week": round(minutes / 60, 1),
+        "fte_equivalent": round(minutes / 60 / 40, 2),
+        "productivity_multiplier": round(sum(throughputs) / len(throughputs), 1),
+        "added_ai_cost_usd_per_week": added,
+        "added_ai_cost_usd_per_year": round(added * 52, 2),
     }
 
 
 def _fallback_summary(totals: dict[str, Any], recs: list[dict[str, Any]]) -> str:
-    hours = round(totals["time_saved_minutes_per_week"] / 60, 1)
     names = ", ".join(r["title"] for r in recs[:3]) or "no workflows yet"
     return (
-        f"This week we observed {totals['workflows_found']} repeatable workflow(s) worth automating "
-        f"({names}). Adopting them would save about {hours} analyst hours/week "
-        f"(~${totals['cost_saved_usd_per_week']:,}/week, ~${totals['cost_saved_usd_per_year']:,}/year) "
-        f"at an estimated model cost of ${totals['model_cost_usd_per_week']:,}/week. "
-        "Each ships as a reviewable skill that runs under human approval — no automatic actions."
+        f"This week we found {totals['workflows_found']} repeatable workflow(s) worth automating ({names}). "
+        f"Adopting them frees about {totals['time_saved_hours_per_week']} analyst hours/week "
+        f"(~{totals['fte_equivalent']} FTE of capacity, ~{totals['productivity_multiplier']}x throughput on those tasks). "
+        f"This does not cut spend — it adds an estimated ${totals['added_ai_cost_usd_per_week']:,}/week in AI cost "
+        f"(~${totals['added_ai_cost_usd_per_year']:,}/year) — but it converts manual hours into capacity. "
+        "Every skill runs under human approval; nothing runs automatically."
     )
 
 
@@ -291,19 +323,18 @@ def _ai_summary(totals: dict[str, Any], recs: list[dict[str, Any]]) -> str:
     try:
         payload = {
             "totals": totals,
-            "workflows": [
-                {"title": r["title"], "source_apps": r["source_apps"], "roi": r["roi"]}
-                for r in recs
-            ],
+            "workflows": [{"title": r["title"], "source_apps": r["source_apps"], "roi": r["roi"]} for r in recs],
         }
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a forward-deployed engineer writing the weekly advisory summary for a "
-                    "finance team. Be concrete and non-technical. 2-4 sentences. Lead with the dollar/time "
-                    "impact, name the top workflows, and remind them every skill runs under human approval. "
-                    "Do not invent numbers beyond the data provided."
+                    "You are a forward-deployed engineer writing the weekly advisory summary for a finance team. "
+                    "Be concrete and non-technical, 2-4 sentences. Lead with the TIME freed (hours/week, FTE "
+                    "equivalent, throughput multiplier). Be explicit that this does NOT save money — it ADDS AI "
+                    "spend (give the added $/week and $/year). Frame the trade as turning manual hours into "
+                    "capacity. Remind them every skill runs under human approval. Do not invent numbers beyond "
+                    "the data provided."
                 ),
             },
             {"role": "user", "content": json.dumps(payload, sort_keys=True)},
@@ -317,6 +348,10 @@ def weekly_report(root: Path | str, *, use_ai: bool = True) -> dict[str, Any]:
     root = _root(root)
     recs = recommendations(root)
     totals = _report_totals(recs)
+    obs_cost = _observation_cost_week(root)
+    totals["observation_cost_usd_per_week"] = obs_cost
+    totals["added_ai_cost_usd_per_week"] = round(totals["added_ai_cost_usd_per_week"] + obs_cost, 2)
+    totals["added_ai_cost_usd_per_year"] = round(totals["added_ai_cost_usd_per_week"] * 52, 2)
     summary = _ai_summary(totals, recs) if use_ai else _fallback_summary(totals, recs)
     return {
         "period": "this week",
@@ -326,6 +361,66 @@ def weekly_report(root: Path | str, *, use_ai: bool = True) -> dict[str, Any]:
         "usage_trend": usage_trend(root),
         "recommendations": recs,
     }
+
+
+# ---------------------------------------------------------------------------
+# Org-level workflows (the FDE deployment layer, above individual skills)
+# ---------------------------------------------------------------------------
+
+WORKFLOW_TEMPLATES: dict[str, dict[str, Any]] = {
+    "daily_cash_reconciliation": {
+        "name": "Daily Financial Close",
+        "description": "An AI-assisted daily close: reconcile bank activity, triage exceptions, and draft the close summary — orchestrated end to end with human sign-off.",
+        "composed_of": ["Daily cash reconciliation", "Exception triage", "Close summary reporting"],
+        "people_involved": 3,
+        "priority": "high",
+        "fde_recommendation": "Deploy this as the team's standing daily-close workflow. It removes the most repetitive analyst time, scales with transaction volume, and keeps every write behind reviewer approval.",
+    },
+    "fde_intake_candidate": {
+        "name": "Customer Onboarding Pipeline",
+        "description": "Capture inbound onboarding requests, extract customer and blockers, update the tracker, and draft the next-step reply — one consistent intake path.",
+        "composed_of": ["Onboarding intake", "Tracker update", "Follow-up drafting"],
+        "people_involved": 2,
+        "priority": "medium",
+        "fde_recommendation": "Stand this up to give onboarding a single source of truth and cut intake latency. Highest value once volume exceeds a few requests per week.",
+    },
+}
+
+
+def workflows(root: Path | str) -> list[dict[str, Any]]:
+    """Org-level workflow recommendations: what an FDE would deploy to lift team efficiency."""
+    root = _root(root)
+    recs = {r["workflow_family"]: r for r in recommendations(root)}
+    out = []
+    for family, tmpl in WORKFLOW_TEMPLATES.items():
+        rec = recs.get(family)
+        roi = rec["roi"] if rec else {}
+        people = int(tmpl["people_involved"])
+        team_hours = round(float(roi.get("time_saved_hours_per_week", 0)) * people, 1)
+        added_week = round(float(roi.get("added_ai_cost_usd_per_week", 0)) * people, 2)
+        out.append(
+            {
+                "id": family,
+                "name": tmpl["name"],
+                "description": tmpl["description"],
+                "composed_of": tmpl["composed_of"],
+                "source_apps": rec["source_apps"] if rec else ["excel", "gmail"],
+                "status": "recommended",
+                "priority": tmpl["priority"],
+                "fde_recommendation": tmpl["fde_recommendation"],
+                "impact": {
+                    "people_involved": people,
+                    "runs_per_week": int(roi.get("runs_per_week", 5)) * people,
+                    "team_hours_saved_per_week": team_hours,
+                    "fte_equivalent": round(team_hours / 40, 2),
+                    "productivity_multiplier": float(roi.get("throughput_multiplier", 2.0)),
+                    "added_ai_cost_usd_per_week": added_week,
+                    "added_ai_cost_usd_per_year": round(added_week * 52, 2),
+                },
+            }
+        )
+    out.sort(key=lambda w: w["impact"]["team_hours_saved_per_week"], reverse=True)
+    return out
 
 
 # ---------------------------------------------------------------------------

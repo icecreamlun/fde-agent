@@ -598,6 +598,8 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
                 return self.send_json(observatory.weekly_report(self.root, use_ai=use_ai))
             if path == "/api/skills":
                 return self.send_json(observatory.skills_inventory(self.root))
+            if path == "/api/workflows":
+                return self.send_json(observatory.workflows(self.root))
             # --- legacy execution endpoints (unused by the Phase 1 UI) ---
             if path == "/api/skills/matches":
                 return self.send_json(list_matches(self.root))

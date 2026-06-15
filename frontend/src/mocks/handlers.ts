@@ -47,9 +47,11 @@ const RECOMMENDATIONS = [
       minutes_per_run: 36,
       runs_per_week: 5,
       time_saved_minutes_per_week: 144,
-      cost_saved_usd_per_week: 180,
-      cost_saved_usd_per_year: 9360,
-      model_cost_usd_per_week: 0.3,
+      time_saved_hours_per_week: 2.4,
+      throughput_multiplier: 5.1,
+      est_tokens_per_run: 24600,
+      added_ai_cost_usd_per_week: 0.53,
+      added_ai_cost_usd_per_year: 27.56,
     },
   },
   {
@@ -75,9 +77,11 @@ const RECOMMENDATIONS = [
       minutes_per_run: 18,
       runs_per_week: 6,
       time_saved_minutes_per_week: 86,
-      cost_saved_usd_per_week: 108,
-      cost_saved_usd_per_year: 5616,
-      model_cost_usd_per_week: 0.36,
+      time_saved_hours_per_week: 1.4,
+      throughput_multiplier: 4.5,
+      est_tokens_per_run: 9800,
+      added_ai_cost_usd_per_week: 0.36,
+      added_ai_cost_usd_per_year: 18.72,
     },
   },
 ]
@@ -185,18 +189,72 @@ const CONNECTIONS = [
   { id: 'excel', name: 'Excel', kind: 'spreadsheet', description: 'Workbook and cell-level changes.', status: 'connected', event_count: 86, last_event_at: minsAgo(3) },
 ]
 
+const OBSERVATION_COST_WEEK = 0.38
+
 function totals() {
   const recs = RECOMMENDATIONS
+  const minutes = recs.reduce((s, r) => s + r.roi.time_saved_minutes_per_week, 0)
+  const addedSkills = recs.reduce((s, r) => s + r.roi.added_ai_cost_usd_per_week, 0)
+  const added = Math.round((addedSkills + OBSERVATION_COST_WEEK) * 100) / 100
+  const mult = recs.reduce((s, r) => s + r.roi.throughput_multiplier, 0) / recs.length
   return {
     workflows_found: recs.length,
     workflows_proposed: recs.filter(r => !accepted.has(r.id)).length,
     workflows_accepted: recs.filter(r => accepted.has(r.id)).length,
-    time_saved_minutes_per_week: recs.reduce((s, r) => s + r.roi.time_saved_minutes_per_week, 0),
-    cost_saved_usd_per_week: recs.reduce((s, r) => s + r.roi.cost_saved_usd_per_week, 0),
-    cost_saved_usd_per_year: recs.reduce((s, r) => s + r.roi.cost_saved_usd_per_year, 0),
-    model_cost_usd_per_week: Math.round(recs.reduce((s, r) => s + r.roi.model_cost_usd_per_week, 0) * 100) / 100,
+    time_saved_minutes_per_week: minutes,
+    time_saved_hours_per_week: Math.round((minutes / 60) * 10) / 10,
+    fte_equivalent: Math.round((minutes / 60 / 40) * 100) / 100,
+    productivity_multiplier: Math.round(mult * 10) / 10,
+    added_ai_cost_usd_per_week: added,
+    added_ai_cost_usd_per_year: Math.round(added * 52 * 100) / 100,
+    observation_cost_usd_per_week: OBSERVATION_COST_WEEK,
   }
 }
+
+const WORKFLOWS = [
+  {
+    id: 'daily_financial_close',
+    name: 'Daily Financial Close',
+    description:
+      'An AI-assisted daily close: reconcile bank activity, triage exceptions, and draft the close summary — orchestrated end to end with human sign-off.',
+    composed_of: ['Daily cash reconciliation', 'Exception triage', 'Close summary reporting'],
+    source_apps: ['excel', 'gmail'],
+    status: 'recommended',
+    priority: 'high',
+    fde_recommendation:
+      "Deploy this as the team's standing daily-close workflow. It removes the most repetitive analyst time, scales with transaction volume, and keeps every write behind reviewer approval.",
+    impact: {
+      people_involved: 3,
+      runs_per_week: 15,
+      team_hours_saved_per_week: 7.2,
+      fte_equivalent: 0.18,
+      productivity_multiplier: 5.1,
+      added_ai_cost_usd_per_week: 1.59,
+      added_ai_cost_usd_per_year: 82.68,
+    },
+  },
+  {
+    id: 'customer_onboarding_pipeline',
+    name: 'Customer Onboarding Pipeline',
+    description:
+      'Capture inbound onboarding requests, extract customer and blockers, update the tracker, and draft the next-step reply — one consistent intake path.',
+    composed_of: ['Onboarding intake', 'Tracker update', 'Follow-up drafting'],
+    source_apps: ['gmail', 'excel'],
+    status: 'recommended',
+    priority: 'medium',
+    fde_recommendation:
+      'Stand this up to give onboarding a single source of truth and cut intake latency. Highest value once volume exceeds a few requests per week.',
+    impact: {
+      people_involved: 2,
+      runs_per_week: 12,
+      team_hours_saved_per_week: 2.8,
+      fte_equivalent: 0.07,
+      productivity_multiplier: 4.5,
+      added_ai_cost_usd_per_week: 0.72,
+      added_ai_cost_usd_per_year: 37.44,
+    },
+  },
+]
 
 const withStatus = (r: (typeof RECOMMENDATIONS)[number]) => ({ ...r, status: accepted.has(r.id) ? 'accepted' : 'proposed' })
 
@@ -209,13 +267,14 @@ export const handlers = [
       period: 'this week',
       generated_at: minsAgo(0),
       summary:
-        'Your installed skills saved the finance team about $180/week ($9,360/year) and recovered ~2.4 analyst hours this week, at $0.30/week in model cost. One more workflow — Vendor Onboarding Intake — is ready to adopt for another ~$108/week. Every skill runs only under human approval.',
+        'This week we found 2 repeatable workflows worth automating (Daily Cash Reconciliation, Vendor Onboarding Intake). Adopting them frees ~3.8 analyst hours/week (~0.1 FTE of capacity, ~4.8x throughput on those tasks). This does not cut spend — it adds ~$1.27/week (~$66/year) of AI cost — but it converts manual hours into capacity. Every skill runs under human approval; nothing runs automatically.',
       totals: totals(),
       usage_trend: aggregateTrend(),
       recommendations: RECOMMENDATIONS.map(withStatus),
     }),
   ),
   http.get('/api/skills', () => HttpResponse.json(currentSkills())),
+  http.get('/api/workflows', () => HttpResponse.json(WORKFLOWS)),
   http.post('/api/recommendations/:id/accept', ({ params }) => {
     const id = String(params.id)
     accepted.add(id)
