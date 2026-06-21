@@ -1,192 +1,95 @@
-# Dell/NVIDIA Local Agent Wiring
+# Auto-FDE — the agent that remembers how *you* work
 
-This workspace wires the downloaded local stack to the existing Qwen GGUF model:
+> **HydraDB Agentic Memory Hackathon · Context over Amnesia**
+> An AI forward-deployed engineer that watches your repeated work, turns it into a
+> runnable skill, and **learns your preferences across sessions with HydraDB** — so it
+> stops making you repeat yourself.
 
-- Model: `D:\models\qwen3-30b\Qwen3-30B-A3B-Q4_K_M.gguf`
-- OpenClaw source: `D:\models\openclaw`
-- NemoClaw source: `D:\models\NemoClaw`
-- OpenShell source: `D:\models\OpenShell`
+**Live demo (mock-data, click-through):** https://auto-fde-frontend.vercel.app
 
-The downloaded stack repos are treated as read-only inputs. Runtime state, configs, and demo workspace files live under `D:\hackathon`.
+---
 
-## AI Backend (Anthropic)
+## The problem
+A finance analyst gets a daily bank email, reconciles it against a workbook, replies with
+the exceptions — every day. An assistant that helps once and forgets by tomorrow is
+useless: you re-explain your rules, your wording, and your past corrections every session.
 
-All AI logic in this project runs on the **Anthropic API** (the local Ollama/Qwen and OpenClaw paths have been removed). The model defaults to `claude-sonnet-4-6` (strong quality at lower cost; override per-task as needed).
+## What it does
+Auto-FDE observes a repeated workflow (email + Excel), proposes turning it into a **skill**,
+generates it with Claude, and then **gets better every time you give feedback** — with
+**HydraDB as the long-term memory**.
 
-Provide your key via the `ANTHROPIC_API_KEY` environment variable. The easiest way is a git-ignored `.env.local` at the project root (loaded automatically at runtime):
+Two memory loops, both backed by HydraDB:
 
-```
-cp .env.example .env.local   # then edit .env.local and paste your key
-```
+1. **Design memory.** 👍/👎 + a note on a generated skill is written to HydraDB. The next
+   time the skill is generated, the agent recalls those preferences and folds them into the
+   plan — *"reconcile against the Payment Export sheet, never auto-fill the Reviewer
+   column"* — without being told again.
+2. **Execution memory.** When the skill **runs for real** (reads the bank email, reconciles,
+   writes a real `.xlsx` + reply draft + audit), it first recalls the reviewer's standing
+   corrections from HydraDB and **auto-resolves exceptions a past session already cleared**.
+   Same input → fewer exceptions, because it remembered.
 
-`.env.local` contents:
+## How it meets the memory mandate
+- **HydraDB is the primary memory layer** — every preference and correction is written to /
+  recalled from HydraDB (`add_memory` / `recall_preferences`). A live **Memory** tab shows
+  the reads/writes streaming, and `workspace/feedback/memory_trace.jsonl` is the execution log.
+- **Autonomous recall across sessions** — wipe every local artifact (`reset-demo`: deletes
+  the skill, the registry, all local state) and regenerate: the skill *still* reflects your
+  feedback, because the memory lives in HydraDB. "Remember what happened yesterday," proven
+  by destroying today.
+- **Context-aware execution** — the run's output changes (exceptions 1 → 0) purely because
+  of stored history. Not a different prompt — a different *result*, driven by memory.
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-sonnet-4-6   # optional override
-```
+Memory shapes only human-facing plan text and exception resolution; triggers, permissions,
+and guardrails stay deterministic — memory personalizes, it never weakens safety.
 
-Install dependencies (`pip install -r requirements.txt`) — this includes the official `anthropic` SDK. Verify connectivity any time with:
+## How HydraDB is integrated
+See [`skillforge_local/memory.py`](skillforge_local/memory.py) and
+[`autoskill_agent/observatory.py`](autoskill_agent/observatory.py).
+- Per-reviewer `sub_tenant_id` namespace — a preference learned on one skill carries to
+  every skill that reviewer touches.
+- `infer=True` on write, so HydraDB extracts the durable preference from free text.
+- A thin local mirror covers HydraDB's async ingestion window and offline dev, so the loop is
+  demo-reliable while HydraDB remains the source of cross-session truth.
 
-```
-python -m autoskill_agent.cli skillgen-model-check
-```
+## Architecture
+- **Backend** (Python stdlib HTTP server) — `autoskill_agent/`: observe → recommend → generate
+  skill (Claude) → run skill → SkillOps; `skillforge_local/`: email/Excel parsing, the memory
+  layer.
+- **Frontend** (React + Vite + TypeScript) — `frontend/`: Connections, Activity,
+  Recommendations, Skills (feedback + Run), **Memory** (live HydraDB trace), Workflows, Overview.
+- **Stack:** Anthropic Claude (skill generation/planning) · **HydraDB** (agent memory) · React/Vite.
 
-## Fast Path
-
-From PowerShell:
-
-```powershell
-cd D:\hackathon
-.\scripts\wire-stack.ps1
-```
-
-If Ollama is installed, import and start the existing Qwen model:
-
-```powershell
-.\scripts\wire-stack.ps1 -StartModel
-```
-
-Then validate OpenClaw against the isolated config:
-
-```powershell
-.\scripts\wire-stack.ps1 -RunOpenClawCheck
-```
-
-When `nemoclaw` and `openshell` are installed on PATH, create the NemoClaw/OpenShell sandbox:
-
-```powershell
-.\scripts\wire-stack.ps1 -RunNemoClawOnboard
-```
-
-## What Is Wired
-
-OpenClaw uses `config/openclaw.json` with:
-
-- Primary model: `ollama/qwen3-30b-a3b-local`
-- Ollama endpoint: `http://127.0.0.1:11434`
-- Workspace: `D:\hackathon\workspace`
-- Isolated runtime home: `D:\hackathon\.runtime\openclaw-home`
-- Isolated runtime state: `D:\hackathon\.runtime\openclaw-state`
-
-The setup scripts also validate these downloaded source trees:
-
-- `OPENCLAW_SOURCE_DIR=D:\models\openclaw`
-- `NEMOCLAW_SOURCE_DIR=D:\models\NemoClaw`
-- `OPENSHELL_SOURCE_DIR=D:\models\OpenShell`
-
-Ollama imports the existing GGUF through a generated Modelfile under `.runtime`.
-
-NemoClaw uses:
-
-- `NEMOCLAW_PROVIDER=ollama`
-- `NEMOCLAW_MODEL=qwen3-30b-a3b-local`
-- `NEMOCLAW_SANDBOX_NAME=vendor-risk-agent`
-
-OpenShell route examples are in `config/openshell-routes.yaml` for standalone inference routing.
-
-## Current Host Notes
-
-This Windows host currently has OpenClaw and Docker on PATH, but not Ollama, NemoClaw, OpenShell, or llama.cpp. The scripts detect that and stop before host-level installation.
-
-The downloaded NemoClaw/OpenClaw source trees do not contain `dist/` or `node_modules`, so using them directly requires a build/install step. The wiring here points to the existing model and configures the runtime surfaces that are available without modifying `D:\models`.
-
-## SkillForge Local: Skill Generation
-
-The Team B skill-generation flow from the final design doc is implemented under `autoskill_agent/skillgen.py`.
-
-## Live Email To Excel Intake
-
-Configure Gmail or any IMAP-compatible inbox:
-
-```powershell
-$env:SKILLFORGE_IMAP_HOST="imap.gmail.com"
-$env:SKILLFORGE_IMAP_PORT="993"
-$env:SKILLFORGE_IMAP_USERNAME="your@gmail.com"
-$env:SKILLFORGE_IMAP_PASSWORD="gmail-app-password"
-$env:SKILLFORGE_IMAP_MAILBOX="INBOX"
-```
-
-(The Anthropic API key comes from `.env.local` / `ANTHROPIC_API_KEY` — see **AI Backend** above.)
-
-Fetch unread email through IMAP and enrich each message through Claude before writing `activity_events.jsonl`:
-
-```powershell
-python -m autoskill_agent.cli imap-poll --once --openclaw-mode anthropic
-```
-
-For an offline deterministic demo without calling the model:
-
-```powershell
-python -m autoskill_agent.cli imap-poll --once --openclaw-mode mock
-```
-
-Write OpenClaw-enriched matching email events into the onboarding tracker workbook and emit the matching `spreadsheet_row_updated` activity event:
-
-```powershell
-python -m autoskill_agent.cli email-to-excel --workbook workspace/workbooks/onboarding_tracker.xlsx --yes
-```
-
-The Excel path uses `openpyxl`. Install it in the active Python environment or run with a Python runtime that already includes it.
-
-Run the integrated Section A -> Section B demo:
-
-```powershell
-cd D:\hackathon
-python -m autoskill_agent.cli skillgen-section-a-demo --reset --execute
-```
-
-This runs deterministic Section A activity detection from `tests/fixtures/cash_recon_events.jsonl`, writes `workspace/events/workflow_episodes.jsonl` and `workspace/events/skill_candidates.jsonl`, then feeds the candidate into Team B review, skill installation, event matching, preview, approval, local workbook output, draft output, validation, and SkillOps.
-
-Run the end-to-end local demo:
-
-```powershell
-cd D:\hackathon
-python -m autoskill_agent.cli skillgen-demo --reset
-```
-
-It consumes a `PatternCandidate`, creates a human review session, compiles `skill.yaml`, writes the skill bundle, registers it in SQLite, matches a new inbound finance email event, previews execution, requires approval, writes local outputs, validates the run, and records SkillOps metrics.
-
-Run the frontend against the local backend:
-
-```powershell
-cd D:\hackathon
-python -m autoskill_agent.api_server --host 127.0.0.1 --port 8017
-```
-
-In another PowerShell window:
-
-```powershell
-cd D:\hackathon\frontend
-npm ci
-npm run dev -- --host 127.0.0.1 --port 5174
-```
-
-Open `http://127.0.0.1:5174`. The Vite dev server proxies `/api` to the SkillForge backend on port `8017`.
-
-**Preview the UI with no backend and no local data access** (pure mock data — nothing reads your machine's files):
-
+## Quickstart
 ```bash
-cd frontend
-VITE_USE_MOCKS=1 npm run dev
+# 1. Keys — copy and fill in (.env.local is git-ignored)
+cp .env.example .env.local      # set ANTHROPIC_API_KEY + HYDRA_DB_API_KEY + HYDRA_TENANT_ID
+
+# 2. Backend
+pip install -r requirements.txt
+python -m autoskill_agent.api_server --host 127.0.0.1 --port 8017
+
+# 3. Frontend (new terminal)
+cd frontend && npm install && npm run dev
+# open the printed localhost URL; the Vite dev server proxies /api to the backend
+
+# Reset the demo to a clean slate between runs:
+python -m autoskill_agent.cli reset-demo --clear-memory
 ```
+Pure-frontend preview with no backend (in-browser mock data): `cd frontend && VITE_USE_MOCKS=1 npm run dev`.
 
-This serves the full observe → recommend dashboard (connections, weekly report, recommendations, skills + per-skill diagrams, invocation trend, live activity) entirely from in-browser mocks.
+## Demo (≈3 min)
+1. **Recommendations → Accept** → a skill appears.
+2. **Skills → Run** → 1 exception flagged (a known $10 timing difference).
+3. **Teach it** — "that's a known timing difference, treat as matched" → written to HydraDB
+   (watch the Memory tab).
+4. **Run again** → 🧠 *Applied 1 remembered correction from HydraDB* · exceptions 1 → 0 · real
+   reconciled `.xlsx`.
+5. **`reset-demo` → regenerate** → it still remembers. Cross-session memory, proven.
 
-To return the demo match to the human-approval state before presenting:
-
-```powershell
-cd D:\hackathon
-python -m autoskill_agent.cli skillgen-preview match_daily_cash_reconciliation_event_email_bank_2026_06_15
-```
-
-The default planner is deterministic and does not call a model. To use the Anthropic model planner (Claude):
-
-```powershell
-python -m autoskill_agent.cli skillgen-model-check
-python -m autoskill_agent.cli skillgen-review --candidate-id cand_daily_cash_recon_001 --planner anthropic
-```
-
-(`--planner local-model` is kept as an alias for `--planner anthropic`.) The model planner can refine only the review-facing description, workflow steps, expected outcome, and validation rule names. The generated skill is still schema-validated before install, and invalid or unavailable model output falls back to deterministic generation.
-
-See `docs/skill-generation.md` for the step-by-step commands and generated artifact map.
+## Deliverables
+- **Working prototype:** the demo flow above (live HydraDB).
+- **Source code:** this repo.
+- **Execution logs:** `workspace/feedback/memory_trace.jsonl` — every autonomous HydraDB
+  write/recall/apply.
