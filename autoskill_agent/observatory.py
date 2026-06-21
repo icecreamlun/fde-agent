@@ -436,17 +436,15 @@ def local_skills_dir() -> Path:
     return Path.home() / ".claude" / "skills"
 
 
-def accept_recommendation(root: Path | str, candidate_id: str, *, planner: str = "anthropic") -> dict[str, Any]:
-    """Generate the skill bundle for a recommendation and install it locally."""
-    root = _root(root)
-    review = skillgen.create_review_session(root, candidate_id, planner=planner)
-    if review.get("status") not in (None, "awaiting_human_review", "installed") and "review_session_id" not in review:
-        # validation error shape
-        return {"status": "error", "candidate_id": candidate_id, "detail": review}
-    install = skillgen.install_skill(root, review["review_session_id"])
-    if install.get("status") != "installed":
-        return {"status": "error", "candidate_id": candidate_id, "detail": install}
-
+def _finalize_accept(
+    root: Path,
+    candidate_id: str,
+    review: dict[str, Any],
+    install: dict[str, Any],
+    *,
+    planner: str,
+) -> dict[str, Any]:
+    """Copy the installed bundle into the local skills dir and build the result."""
     skill_id = install["skill_id"]
     bundle_dir = Path(install["skill_dir"])
     slug = skillgen.kebab(skill_id)
@@ -471,7 +469,302 @@ def accept_recommendation(root: Path | str, candidate_id: str, *, planner: str =
         "local_path": str(local_dir),
         "installed_files": installed_files,
         "skill_md_preview": preview,
-        "planner": (review.get("planner") or {}).get("mode", planner),
+        "planner": (review.get("planner") or {}).get("status") or (review.get("planner") or {}).get("mode", planner),
+    }
+
+
+def accept_recommendation_steps(root: Path | str, candidate_id: str, *, planner: str = "anthropic"):
+    """Generate + install the skill, yielding progress events for a live UI.
+
+    Yields ``{"event": "progress", "stage", "label", "pct", ...}`` dicts as work
+    proceeds, then a terminal ``{"event": "done", "pct": 100, "result": {...}}``
+    or ``{"event": "error", ...}``.
+    """
+    root = _root(root)
+    yield {"event": "progress", "stage": "read", "label": "Reading the detected pattern", "pct": 8}
+    yield {"event": "progress", "stage": "plan", "label": "Drafting the skill with Claude…", "pct": 28}
+
+    review = skillgen.create_review_session(root, candidate_id, planner=planner)
+    if review.get("status") not in (None, "awaiting_human_review", "installed") and "review_session_id" not in review:
+        yield {"event": "error", "error": "Review session could not be created.", "detail": review}
+        return
+
+    planner_info = review.get("planner") or {}
+    planner_status = planner_info.get("status")
+    pref_count = int(planner_info.get("learned_preferences_count") or 0)
+    memory_backend = planner_info.get("memory_backend") or "local"
+    refined = planner_status == "applied"
+    if pref_count:
+        plabel = f"Claude applied {pref_count} remembered preference{'s' if pref_count != 1 else ''} from your feedback"
+    else:
+        plabel = "Claude refined the plan" if refined else "used the deterministic plan"
+    yield {
+        "event": "progress",
+        "stage": "compile",
+        "label": f"Compiling & validating the skill — {plabel}",
+        "pct": 68,
+        "planner": planner_status,
+        "learned_preferences_count": pref_count,
+        "memory_backend": memory_backend,
+    }
+
+    install = skillgen.install_skill(root, review["review_session_id"])
+    if install.get("status") != "installed":
+        yield {"event": "error", "error": "Skill failed validation and was not installed.", "detail": install}
+        return
+
+    yield {"event": "progress", "stage": "install", "label": "Installing the skill locally", "pct": 90}
+    result = _finalize_accept(root, candidate_id, review, install, planner=planner)
+    yield {"event": "done", "pct": 100, "label": "Skill installed", "result": result}
+
+
+def accept_recommendation(root: Path | str, candidate_id: str, *, planner: str = "anthropic") -> dict[str, Any]:
+    """Generate the skill bundle for a recommendation and install it locally.
+
+    Non-streaming wrapper: drains :func:`accept_recommendation_steps` and returns
+    the final result dict (or an error shape).
+    """
+    final: dict[str, Any] = {"status": "error", "candidate_id": candidate_id}
+    for step in accept_recommendation_steps(root, candidate_id, planner=planner):
+        if step.get("event") == "done":
+            final = step["result"]
+        elif step.get("event") == "error":
+            final = {"status": "error", "candidate_id": candidate_id, "detail": step.get("detail", step.get("error"))}
+    return final
+
+
+# ---------------------------------------------------------------------------
+# Skill feedback memory (HydraDB-backed learning loop)
+# ---------------------------------------------------------------------------
+
+def submit_skill_feedback(
+    root: Path | str,
+    skill_id: str,
+    rating: str,
+    note: str = "",
+    user: str | None = None,
+) -> dict[str, Any]:
+    """Record 👍/👎 + free-text feedback on a skill into the memory layer.
+
+    The next generation of this (or a related) skill recalls it and adapts.
+    """
+    root = _root(root)
+    from skillforge_local.memory import SkillMemory
+
+    skill_name = skill_id.replace("_", " ").title()
+    for skill in skills_inventory(root):
+        if skill.get("skill_id") == skill_id:
+            skill_name = skill.get("name") or skill_name
+            break
+
+    mem = SkillMemory(root)
+    record = mem.add_feedback(skill_id=skill_id, skill_name=skill_name, rating=rating, note=note, user=user)
+    return {"status": "ok", **record}
+
+
+def memory_status(root: Path | str) -> dict[str, Any]:
+    """Report which memory backend is active (for the UI badge)."""
+    from skillforge_local.memory import SkillMemory
+
+    return SkillMemory(_root(root)).status()
+
+
+def memory_trace(root: Path | str, limit: int = 30) -> list[dict[str, Any]]:
+    """Recent HydraDB read/write trace — proof the agent uses memory autonomously."""
+    from skillforge_local.memory import SkillMemory
+
+    return SkillMemory(_root(root)).recent_trace(limit)
+
+
+def _correction_for_exception(exception: dict[str, Any], recalled_texts: list[str]) -> str | None:
+    """Return the recalled correction that references this exception, if any."""
+    tid = str(exception.get("transaction_id") or "").lower().strip()
+    desc = str(exception.get("description") or exception.get("exception_reason") or "").lower().strip()
+    for text in recalled_texts:
+        low = text.lower()
+        if tid and tid in low:
+            return text
+        if desc and len(desc) >= 4 and desc in low:
+            return text
+    return None
+
+
+def run_skill(root: Path | str, skill_id: str, user: str | None = None) -> dict[str, Any]:
+    """Run an installed skill end-to-end, applying remembered corrections from HydraDB.
+
+    The run autonomously recalls this reviewer's standing corrections, auto-resolves
+    any exception a past session already cleared, then executes for real — writing a
+    reconciled .xlsx, a reply draft, and an audit record. Context-aware execution:
+    the same input yields fewer exceptions because the agent remembered.
+    """
+    root = _root(root)
+    from skillforge_local.memory import SkillMemory
+
+    mem = SkillMemory(root)
+    recalled = mem.recall_preferences(
+        query=(
+            "reconciliation corrections, exceptions previously approved or marked OK, "
+            "and standing rules to apply when running the cash reconciliation skill"
+        ),
+        user=user,
+        limit=8,
+    )
+    recalled_texts = [r["text"] for r in recalled if r.get("text")]
+
+    matches = skillgen.match_events(root)
+    match = next((m for m in matches if m.get("skill_id") == skill_id), None)
+    if match is None:
+        return {
+            "status": "no_match",
+            "skill_id": skill_id,
+            "detail": "No pending bank-email event matched this skill (already run for today, or no inbound email).",
+        }
+    match_id = match["match_id"]
+
+    preview = skillgen.preview_match(root, match_id)
+    pwu = preview["proposed_workbook_update"]
+    exceptions = list(pwu.get("exceptions", []))
+
+    auto_resolved: list[dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
+    for exc in exceptions:
+        hit = _correction_for_exception(exc, recalled_texts)
+        if hit:
+            auto_resolved.append({"transaction_id": exc.get("transaction_id"), "applied": hit[:200]})
+        else:
+            remaining.append(exc)
+
+    if auto_resolved:
+        resolved_ids = {a["transaction_id"] for a in auto_resolved}
+        for row in pwu.get("row_updates", []):
+            if row.get("transaction_id") in resolved_ids:
+                row["match_status"] = "Matched"
+                row["exception_reason"] = "Auto-resolved from remembered correction"
+        pwu["exceptions"] = remaining
+        pwu["exception_count"] = len(remaining)
+        pwu["matched_count"] = int(pwu.get("import_transactions", 0)) - len(remaining)
+        preview["proposed_reply_draft"] = (
+            f"Bank transaction update complete. {pwu['matched_count']} matched "
+            f"({len(auto_resolved)} auto-resolved from remembered corrections); "
+            f"{pwu['exception_count']} require review before sending."
+        )
+        skillgen.write_json(skillgen.paths(root).matches_dir / f"{match_id}.preview.json", preview)
+
+    execution = skillgen.approve_match(root, match_id, actor=user or "analyst_1")
+    mem._trace(
+        "apply",
+        sub_tenant_id=user or mem.default_user,
+        match_id=match_id,
+        auto_resolved=len(auto_resolved),
+        exceptions_before=len(exceptions),
+        exceptions_after=len(remaining),
+    )
+
+    outputs = execution.get("outputs", {}) if isinstance(execution, dict) else {}
+    return {
+        "status": "executed",
+        "skill_id": skill_id,
+        "match_id": match_id,
+        "memory": {
+            "backend": mem.status()["backend"],
+            "recalled": recalled_texts[:5],
+            "auto_resolved": auto_resolved,
+            "exceptions_before": len(exceptions),
+            "exceptions_after": len(remaining),
+        },
+        "artifacts": {
+            "workbook": outputs.get("workbook_created"),
+            "workbook_url": outputs.get("workbook_url"),
+            "draft": outputs.get("draft_created"),
+            "draft_url": outputs.get("draft_url"),
+            "matched_count": outputs.get("matched_count"),
+            "exception_count": outputs.get("exception_count"),
+        },
+    }
+
+
+def reset_demo(root: Path | str, *, keep_local_skills: bool = False, clear_memory: bool = False) -> dict[str, Any]:
+    """Return the demo to the pre-accept "observe" state.
+
+    Clears generated/installed skills, the accepted marker, the skill registry,
+    and stale execution artifacts so Recommendations read as ``proposed`` and the
+    Skills tab is empty again. Detected candidates, activity events, and
+    workbooks are kept so the observe -> recommend surface still has data.
+
+    By default it also removes the copies this app installed under
+    ``~/.claude/skills`` — but only slugs it actually generated (taken from
+    ``workspace/skills``), never unrelated skills. Pass ``keep_local_skills=True``
+    to leave the local copies in place.
+    """
+    root = _root(root)
+    p = skillgen.paths(root)
+    removed: dict[str, list[str]] = {"workspace_skills": [], "local_skills": [], "files": []}
+
+    workspace_skills = root / "workspace" / "skills"
+    slugs: list[str] = []
+    if workspace_skills.exists():
+        slugs = [d.name for d in workspace_skills.iterdir() if d.is_dir()]
+
+    if not keep_local_skills:
+        for slug in slugs:
+            local_dir = local_skills_dir() / slug
+            if local_dir.exists():
+                shutil.rmtree(local_dir, ignore_errors=True)
+                removed["local_skills"].append(str(local_dir))
+
+    if workspace_skills.exists():
+        for d in sorted(workspace_skills.iterdir()):
+            if d.is_dir():
+                shutil.rmtree(d, ignore_errors=True)
+                removed["workspace_skills"].append(d.name)
+            else:
+                d.unlink()
+                removed["files"].append(str(d))
+
+    accepted = root / "workspace" / "accepted.json"
+    if accepted.exists():
+        accepted.unlink()
+        removed["files"].append(str(accepted))
+
+    # Report the registry only if it held a real install. Computing the summary
+    # below re-creates an empty registry as a side effect, so we clean that up
+    # silently afterwards to leave a tidy, idempotent final state.
+    if p.registry_db.exists():
+        p.registry_db.unlink()
+        removed["files"].append(str(p.registry_db))
+
+    if p.matches_dir.exists():
+        for f in sorted(p.matches_dir.glob("*")):
+            if f.is_file():
+                f.unlink()
+                removed["files"].append(str(f))
+
+    # Skill feedback memory persists across resets by default (that's the
+    # cross-session story). --clear-memory wipes the local mirror for a clean
+    # before/after demo. HydraDB memory lives in its own namespace and is not
+    # touched here — point the demo at a fresh sub_tenant for a clean slate.
+    if clear_memory:
+        for name in ("skill_feedback.jsonl", "memory_trace.jsonl"):
+            log = root / "workspace" / "feedback" / name
+            if log.exists():
+                log.unlink()
+                removed["files"].append(str(log))
+
+    recommendations_now = [r["status"] for r in recommendations(root)]
+    skills_now = len(skills_inventory(root))
+    if p.registry_db.exists():  # re-created by skills_inventory(); drop it again
+        p.registry_db.unlink()
+
+    return {
+        "status": "reset",
+        "removed": removed,
+        "kept": {
+            "candidates": str(p.skill_candidates_log),
+            "activity_events": str(root / "workspace" / "events"),
+            "workbooks": str(p.workbooks_dir),
+        },
+        "recommendations_now": recommendations_now,
+        "skills_now": skills_now,
     }
 
 

@@ -41,6 +41,13 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M17 7v11.5" />
     </>
   ),
+  memory: (
+    <>
+      <path d="M12 3a6 6 0 0 1 6 6v1.5a4 4 0 0 1-1.5 8H7.5A4 4 0 0 1 6 10.5V9a6 6 0 0 1 6-6z" />
+      <path d="M12 8v4" />
+      <path d="M9.5 10.5h5" />
+    </>
+  ),
 }
 
 export function NavIcon({ name }: { name: string }) {

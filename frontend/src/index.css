@@ -2117,6 +2117,346 @@ h4 {
   background: var(--line-strong);
 }
 
+.gen-progress {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gen-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.gen-progress-pct {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.gen-bar {
+  height: 8px;
+  width: 100%;
+  background: var(--accent-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.gen-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.gen-bar-fill.working {
+  background-image: linear-gradient(90deg, var(--accent) 0%, #ff8a52 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  animation: gen-shimmer 1.2s linear infinite;
+}
+
+.gen-bar-fill.done {
+  background: var(--success);
+}
+
+@keyframes gen-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+
+/* --- Skill feedback panel (HydraDB memory loop) --- */
+.feedback-panel {
+  margin-top: 24px;
+  padding: 18px;
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+}
+
+.feedback-hint {
+  margin: 4px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.feedback-rate {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.thumb {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  cursor: pointer;
+}
+
+.thumb:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.thumb.sel.up {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.thumb.sel.down {
+  border-color: var(--accent);
+  background: #ffffff;
+  color: var(--accent);
+}
+
+.thumb:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.feedback-note {
+  width: 100%;
+  padding: 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  resize: vertical;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.feedback-actions .accept-btn,
+.feedback-actions .ghost-btn {
+  flex: 1;
+  width: auto;
+}
+
+.ghost-btn {
+  padding: 13px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  cursor: pointer;
+}
+
+.ghost-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ghost-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.feedback-saved {
+  margin: 10px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.mem-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+
+.mem-badge.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.mem-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.mem-badge.on .mem-dot {
+  background: var(--accent);
+}
+
+.mem-dot.on {
+  background: var(--success);
+}
+
+/* --- Run panel (memory-driven execution) --- */
+.run-panel {
+  margin-top: 20px;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+}
+
+.run-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.run-result {
+  margin-top: 14px;
+}
+
+.run-memory-hit {
+  padding: 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.run-memory-hit ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.run-memory-hit li {
+  margin: 4px 0;
+}
+
+.run-exc {
+  margin: 10px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.run-exc .was {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.run-exc .now {
+  color: var(--success);
+}
+
+.run-exc-note {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.run-stats {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.run-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.artifact-link {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: #ffffff;
+  border: 1px solid var(--accent);
+  text-decoration: none;
+}
+
+.artifact-link:hover {
+  background: var(--accent-soft);
+}
+
+/* --- Memory view (live HydraDB trace) --- */
+.mem-status-card {
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  margin-bottom: 20px;
+}
+
+.mem-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.mem-status-meta {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.trace-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+}
+
+.trace-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trace-item:last-child {
+  border-bottom: none;
+}
+
+.trace-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.trace-op {
+  flex-shrink: 0;
+  width: 130px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.op-write { color: #b4690e; }
+.op-recall { color: var(--accent); }
+.op-apply { color: var(--success); }
+
+.trace-body {
+  color: var(--ink);
+}
+
+.trace-top {
+  color: var(--muted);
+}
+
 .installed-banner {
   display: flex;
   flex-direction: column;

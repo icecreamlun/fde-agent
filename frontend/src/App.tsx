@@ -7,16 +7,18 @@ import { SkillsView } from './views/SkillsView'
 import { WorkflowsView } from './views/WorkflowsView'
 import { ActivityView } from './views/ActivityView'
 import { ConnectionsView } from './views/ConnectionsView'
+import { MemoryView } from './views/MemoryView'
 import { NavIcon } from './components/NavIcon'
 
-type ViewId = 'connections' | 'activity' | 'recommendations' | 'skills' | 'workflows' | 'overview'
+type ViewId = 'connections' | 'activity' | 'recommendations' | 'skills' | 'memory' | 'workflows' | 'overview'
 
-// Ordered top→bottom to match the journey: connect → observe → skills → workflows → report.
+// Ordered top→bottom to match the journey: connect → observe → skills → memory → workflows → report.
 const NAV: { id: ViewId; label: string }[] = [
   { id: 'connections', label: 'Connections' },
   { id: 'activity', label: 'Activity' },
   { id: 'recommendations', label: 'Recommendations' },
   { id: 'skills', label: 'Skills' },
+  { id: 'memory', label: 'Memory' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'overview', label: 'Overview' },
 ]
@@ -26,6 +28,7 @@ const TITLES: Record<ViewId, string> = {
   activity: 'Live activity',
   recommendations: 'Tasks to turn into skills',
   skills: 'Your skills',
+  memory: 'Agent memory (HydraDB)',
   workflows: 'Org workflows to deploy',
   overview: 'Weekly FDE report',
 }
@@ -82,6 +85,7 @@ export default function App() {
         {view === 'activity' ? <ActivityView /> : null}
         {view === 'recommendations' ? <RecommendationsView /> : null}
         {view === 'skills' ? <SkillsView /> : null}
+        {view === 'memory' ? <MemoryView /> : null}
         {view === 'workflows' ? <WorkflowsView /> : null}
         {view === 'overview' ? <OverviewView /> : null}
       </main>

@@ -210,11 +210,19 @@ def local_model_config(root: Path | str = ".", timeout_seconds: int = 180) -> Lo
     with SKILLGEN_MODEL / ANTHROPIC_MODEL.
     """
     load_local_env(root)
+    # The planner is a bounded JSON-refinement task, so default it to the fast
+    # Haiku tier (override with SKILLGEN_PLANNER_MODEL). The rest of the app keeps
+    # using SKILLGEN_MODEL / ANTHROPIC_MODEL via default_model().
+    planner_model = (
+        os.environ.get("SKILLGEN_PLANNER_MODEL")
+        or os.environ.get("SKILLGEN_MODEL")
+        or "claude-haiku-4-5-20251001"
+    )
     return LocalModelConfig(
         backend="anthropic",
         base_url=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
         api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        model=default_model(),
+        model=planner_model,
         timeout_seconds=timeout_seconds,
     )
 
@@ -223,18 +231,25 @@ def call_local_chat_model(
     config: LocalModelConfig,
     messages: list[dict[str, str]],
     response_format: dict[str, str] | None = None,
+    *,
+    max_tokens: int = 16000,
+    thinking: bool = True,
 ) -> dict[str, Any]:
     """Call Claude with OpenAI-style messages and return an OpenAI-shaped dict.
 
     The ``response_format`` argument is accepted for backward compatibility; the
-    JSON contract is enforced by the prompt and parsed downstream.
+    JSON contract is enforced by the prompt and parsed downstream. Small,
+    schema-bound calls should pass a tight ``max_tokens`` and ``thinking=False``
+    to keep latency low.
     """
     text = complete_text(
         messages,
         model=config.model,
+        max_tokens=max_tokens,
         timeout_seconds=config.timeout_seconds,
         api_key=config.api_key or None,
         base_url=config.base_url,
+        thinking=thinking,
     )
     return {"choices": [{"message": {"content": text}}]}
 
@@ -255,12 +270,19 @@ def parse_json_object(text: str) -> dict[str, Any]:
     if stripped.startswith("```"):
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
         stripped = re.sub(r"\s*```$", "", stripped)
-    if not stripped.startswith("{"):
-        start = stripped.find("{")
+    start = stripped.find("{")
+    if start < 0:
+        raise ValueError("Expected a JSON object")
+    # The model may emit the JSON object followed by trailing prose or a second
+    # block. ``raw_decode`` parses just the first complete object and ignores the
+    # rest, so we no longer fail with "Extra data" and discard a valid plan.
+    try:
+        payload, _ = json.JSONDecoder().raw_decode(stripped[start:])
+    except json.JSONDecodeError:
         end = stripped.rfind("}")
-        if start >= 0 and end > start:
-            stripped = stripped[start : end + 1]
-    payload = json.loads(stripped)
+        if end <= start:
+            raise
+        payload = json.loads(stripped[start : end + 1])
     if not isinstance(payload, dict):
         raise ValueError("Expected a JSON object")
     return payload
@@ -1083,8 +1105,9 @@ def apply_skill_planner(
         return review
 
     config = local_model_config(root, timeout_seconds=model_timeout_seconds)
+    learned_preferences, memory_backend = recall_learned_preferences(root, candidate)
     try:
-        plan = request_model_skill_plan(config, candidate, review["suggested"])
+        plan = request_model_skill_plan(config, candidate, review["suggested"], learned_preferences=learned_preferences)
         suggested, applied_fields, warnings = merge_model_plan_into_suggested(review["suggested"], plan)
         review["suggested"] = suggested
         review["planner"] = {
@@ -1095,6 +1118,9 @@ def apply_skill_planner(
             "model": config.model,
             "applied_fields": applied_fields,
             "warnings": warnings,
+            "memory_backend": memory_backend,
+            "learned_preferences_count": len(learned_preferences),
+            "learned_preferences": learned_preferences[:5],
         }
     except Exception as exc:
         review["planner"] = {
@@ -1104,24 +1130,56 @@ def apply_skill_planner(
             "base_url": config.base_url,
             "model": config.model,
             "error": str(exc),
+            "memory_backend": memory_backend,
+            "learned_preferences_count": len(learned_preferences),
         }
     return review
+
+
+def recall_learned_preferences(root: Path | str, candidate: dict[str, Any]) -> tuple[list[str], str]:
+    """Pull this reviewer's past feedback from the memory layer (HydraDB + local).
+
+    Returns ``(preference_texts, backend)``. Never raises — memory is best-effort.
+    """
+    try:
+        from skillforge_local.memory import SkillMemory
+
+        mem = SkillMemory(root)
+        summary = candidate.get("summary", {}) if isinstance(candidate.get("summary"), dict) else {}
+        family = summary.get("workflow_family") or candidate.get("candidate_name") or candidate.get("name_suggestion") or "skill"
+        items = mem.recall_preferences(
+            query=(
+                f"reviewer preferences and past feedback for the {family} skill: "
+                "column filling, human approvals, validation rules, description wording, things to avoid"
+            ),
+            limit=8,
+        )
+        return [it["text"] for it in items if it.get("text")], mem.status()["backend"]
+    except Exception:  # noqa: BLE001 - memory must never block generation
+        return [], "local"
 
 
 def request_model_skill_plan(
     config: LocalModelConfig,
     candidate: dict[str, Any],
     suggested: dict[str, Any],
+    learned_preferences: list[str] | None = None,
 ) -> dict[str, Any]:
     response = call_local_chat_model(
         config,
-        model_planner_messages(candidate, suggested),
+        model_planner_messages(candidate, suggested, learned_preferences=learned_preferences),
         response_format={"type": "json_object"},
+        max_tokens=8000,
+        thinking=False,
     )
     return parse_json_object(local_model_text_response(response))
 
 
-def model_planner_messages(candidate: dict[str, Any], suggested: dict[str, Any]) -> list[dict[str, str]]:
+def model_planner_messages(
+    candidate: dict[str, Any],
+    suggested: dict[str, Any],
+    learned_preferences: list[str] | None = None,
+) -> list[dict[str, str]]:
     payload = {
         "section_a_candidate": candidate,
         "deterministic_base_plan": {
@@ -1148,16 +1206,28 @@ def model_planner_messages(candidate: dict[str, Any], suggested: dict[str, Any])
             "Do not overwrite reviewed rows or closed-period rows.",
         ],
     }
+    cleaned_preferences = [p.strip() for p in (learned_preferences or []) if isinstance(p, str) and p.strip()]
+    if cleaned_preferences:
+        payload["learned_reviewer_preferences"] = cleaned_preferences
     system = (
         "You are SkillForge Local's offline skill planner. Refine workflow text for human review "
         "while preserving local safety invariants. Do not invent network, email-send, or destructive actions."
     )
+    preference_instruction = ""
+    if cleaned_preferences:
+        preference_instruction = (
+            " Honor the learned_reviewer_preferences: fold them into the description, workflow_steps, "
+            "expected_outcome, and validation_rules. They reflect this reviewer's past feedback on earlier "
+            "skills and take priority over the deterministic defaults — but never weaken the required_invariants."
+        )
     user = (
         "Refine the deterministic skill plan for human review. Return a JSON object with exactly these top-level keys: "
         "description, workflow_steps, expected_outcome, validation_rules. "
         "workflow_steps must be an array of objects with id, order, title, type, summary, inputs, outputs, "
         "and optional action_type, target, requires_step, approval_text. "
-        "expected_outcome must contain summary, files_created, files_modified, side_effects.\n\n"
+        "expected_outcome must contain summary, files_created, files_modified, side_effects."
+        + preference_instruction
+        + "\n\n"
         + json.dumps(payload, indent=2, sort_keys=True)
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -2184,6 +2254,43 @@ def validate_skill_spec(skill: dict[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "errors": []}
 
 
+def apply_review_refinements(skill: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    """Fold the model-refined review plan into a compiled skill (display text only).
+
+    Applied only when the planner ran (status ``applied``). Updates the
+    description, per-step title/summary (matched by id), and the expected-outcome
+    summary — the human-facing fields the planner is allowed to shape from learned
+    feedback. Triggers, permissions, guardrails, resources, and validation checks
+    stay exactly as the deterministic compiler produced them.
+    """
+    planner = review.get("planner") or {}
+    if planner.get("status") != "applied":
+        return skill
+    suggested = review.get("suggested") or {}
+
+    description = suggested.get("description")
+    if isinstance(description, str) and description.strip():
+        skill["description"] = description.strip()
+
+    refined_steps = {
+        s.get("id"): s for s in suggested.get("workflow_steps", []) if isinstance(s, dict) and s.get("id")
+    }
+    for step in skill.get("workflow", {}).get("steps", []):
+        refined = refined_steps.get(step.get("id"))
+        if not refined:
+            continue
+        if isinstance(refined.get("title"), str) and refined["title"].strip():
+            step["title"] = refined["title"].strip()
+        if isinstance(refined.get("summary"), str) and refined["summary"].strip():
+            step["summary"] = refined["summary"].strip()
+
+    expected = suggested.get("expected_outcome")
+    if isinstance(expected, dict) and isinstance(expected.get("summary"), str) and expected["summary"].strip():
+        skill.setdefault("workflow", {}).setdefault("expected_outcome", {})["summary"] = expected["summary"].strip()
+
+    return skill
+
+
 def install_skill(root: Path | str, review_session_id: str) -> dict[str, Any]:
     p = paths(root)
     review_file = p.reviews_dir / f"{review_session_id}.json"
@@ -2196,6 +2303,13 @@ def install_skill(root: Path | str, review_session_id: str) -> dict[str, Any]:
         feedback = read_json(feedback_file)
     candidate = load_candidate(root, feedback["candidate_id"])
     skill = compile_skill_spec(candidate, feedback)
+    # Overlay the model-refined, feedback-personalised plan from the review onto
+    # the deterministically-compiled skill. compile_skill_spec rebuilds from the
+    # (possibly stale) feedback object, so without this the planner's learned
+    # preferences would never reach the installed skill. We only touch display
+    # text — never triggers/permissions/guardrails/validation — so the
+    # deterministic safety core is untouched.
+    skill = apply_review_refinements(skill, review)
     validation = validate_skill_spec(skill)
     if validation["status"] != "ok":
         return validation

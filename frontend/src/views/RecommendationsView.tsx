@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { acceptRecommendation, getRecommendations } from '../api/observatory'
-import type { AcceptResult, Recommendation } from '../api/observatory'
+import type { AcceptProgress, AcceptResult, Recommendation } from '../api/observatory'
 import { Metric, SourceChip } from '../components/common'
+import { GenProgress } from '../components/GenProgress'
 import { cost, hours } from '../lib/format'
 
 function RecommendationCard({
   rec,
   onAccept,
   accepting,
+  progress,
   result,
   error,
 }: {
   rec: Recommendation
   onAccept: (id: string) => void
   accepting: boolean
+  progress?: AcceptProgress
   result?: AcceptResult
   error?: string
 }) {
@@ -74,9 +77,11 @@ function RecommendationCard({
               </details>
             ) : null}
           </div>
+        ) : accepting ? (
+          <GenProgress pct={progress?.pct ?? 4} label={progress?.label ?? 'Preparing…'} />
         ) : (
-          <button className="accept-btn" type="button" disabled={accepting} onClick={() => onAccept(rec.id)}>
-            {accepting ? 'Generating skill…' : 'Accept & install skill'}
+          <button className="accept-btn" type="button" onClick={() => onAccept(rec.id)}>
+            Accept &amp; install skill
           </button>
         )}
         {error ? <p className="rec-error">{error}</p> : null}
@@ -89,11 +94,17 @@ export function RecommendationsView() {
   const queryClient = useQueryClient()
   const [results, setResults] = useState<Record<string, AcceptResult>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [progress, setProgress] = useState<Record<string, AcceptProgress>>({})
 
   const recommendations = useQuery({ queryKey: ['recommendations'], queryFn: getRecommendations })
 
   const accept = useMutation({
-    mutationFn: acceptRecommendation,
+    mutationFn: (id: string) =>
+      acceptRecommendation(id, p => setProgress(prev => ({ ...prev, [id]: p }))),
+    onMutate: (id: string) => {
+      setErrors(prev => ({ ...prev, [id]: '' }))
+      setProgress(prev => ({ ...prev, [id]: { stage: 'start', label: 'Preparing…', pct: 4 } }))
+    },
     onSuccess: async (result, id) => {
       if (result.status === 'installed') {
         setResults(prev => ({ ...prev, [id]: result }))
@@ -131,6 +142,7 @@ export function RecommendationsView() {
             rec={rec}
             onAccept={accept.mutate}
             accepting={accept.isPending && accept.variables === rec.id}
+            progress={progress[rec.id]}
             result={results[rec.id]}
             error={errors[rec.id]}
           />

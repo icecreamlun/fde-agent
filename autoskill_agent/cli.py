@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from autoskill_agent import core, section_a_integration, skillgen
+from autoskill_agent import core, observatory, section_a_integration, skillgen
 from skillforge_local.excel_writer import ensure_onboarding_tracker
 from skillforge_local.imap_collector import fetch_unseen_once
 from skillforge_local.imap_config import load_imap_config
@@ -75,6 +75,16 @@ def cmd_demo(args: argparse.Namespace) -> int:
     print(f"Output:    {result['output']}")
     print(f"Dashboard: {paths.dashboard_html}")
     print(f"Audit:     {paths.audit_log}")
+    return 0
+
+
+def cmd_reset_demo(args: argparse.Namespace) -> int:
+    result = observatory.reset_demo(
+        args.root,
+        keep_local_skills=args.keep_local_skills,
+        clear_memory=args.clear_memory,
+    )
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -266,6 +276,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subparsers.add_parser("status", help="Show current local state.")
     status_parser.set_defaults(func=cmd_status)
+
+    reset_demo_parser = subparsers.add_parser(
+        "reset-demo",
+        help="Reset to the pre-accept observe state: Skills empty, recommendation 'proposed'.",
+    )
+    reset_demo_parser.add_argument(
+        "--keep-local-skills",
+        action="store_true",
+        help="Leave copies under ~/.claude/skills in place (only clears the project workspace).",
+    )
+    reset_demo_parser.add_argument(
+        "--clear-memory",
+        action="store_true",
+        help="Also wipe the local skill-feedback mirror for a clean before/after demo.",
+    )
+    reset_demo_parser.set_defaults(func=cmd_reset_demo)
 
     skillgen_bootstrap = subparsers.add_parser("skillgen-bootstrap", help="Create Section A demo candidate/events.")
     skillgen_bootstrap.add_argument("--force", action="store_true")

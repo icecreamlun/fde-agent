@@ -600,6 +600,12 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
                 return self.send_json(observatory.skills_inventory(self.root))
             if path == "/api/workflows":
                 return self.send_json(observatory.workflows(self.root))
+            if path == "/api/memory/status":
+                return self.send_json(observatory.memory_status(self.root))
+            if path == "/api/memory/trace":
+                query = parse_qs(parsed.query)
+                limit = int(query.get("limit", ["30"])[0])
+                return self.send_json(observatory.memory_trace(self.root, limit=limit))
             # --- legacy execution endpoints (unused by the Phase 1 UI) ---
             if path == "/api/skills/matches":
                 return self.send_json(list_matches(self.root))
@@ -632,11 +638,30 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             body = self.read_json_body()
+            match = re.fullmatch(r"/api/recommendations/([^/]+)/accept/stream", path)
+            if match:
+                return self.send_accept_stream(unquote(match.group(1)))
             match = re.fullmatch(r"/api/recommendations/([^/]+)/accept", path)
             if match:
                 result = observatory.accept_recommendation(self.root, unquote(match.group(1)))
                 status = HTTPStatus.OK if result.get("status") == "installed" else HTTPStatus.BAD_REQUEST
                 return self.send_json(result, status=status)
+            match = re.fullmatch(r"/api/skills/([^/]+)/feedback", path)
+            if match:
+                payload = body if isinstance(body, dict) else {}
+                result = observatory.submit_skill_feedback(
+                    self.root,
+                    unquote(match.group(1)),
+                    rating=str(payload.get("rating", "")),
+                    note=str(payload.get("note", "")),
+                    user=payload.get("user"),
+                )
+                return self.send_json(result)
+            match = re.fullmatch(r"/api/skills/([^/]+)/run", path)
+            if match:
+                payload = body if isinstance(body, dict) else {}
+                result = observatory.run_skill(self.root, unquote(match.group(1)), user=payload.get("user"))
+                return self.send_json(result)
             match = re.fullmatch(r"/api/skills/matches/([^/]+)/approve", path)
             if match:
                 execution = skillgen.approve_match(
@@ -717,6 +742,25 @@ class SkillForgeHandler(BaseHTTPRequestHandler):
     def send_sse_comment(self, comment: str) -> None:
         self.wfile.write(f": {comment}\n\n".encode("utf-8"))
         self.wfile.flush()
+
+    def send_accept_stream(self, candidate_id: str) -> None:
+        """Stream skill-generation progress as Server-Sent Events."""
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            for event in observatory.accept_recommendation_steps(self.root, candidate_id):
+                self.send_sse_event(event)
+                # Small spacing so the early stages are visible before the
+                # blocking model call; the long wait happens inside the iterator.
+                time.sleep(0.25)
+        except Exception as exc:  # noqa: BLE001 - report into the stream, headers already sent
+            try:
+                self.send_sse_event({"event": "error", "error": str(exc)})
+            except Exception:
+                pass
 
     def send_stream(self, match_id: str) -> None:
         self.send_response(HTTPStatus.OK)

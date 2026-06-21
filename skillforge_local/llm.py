@@ -111,12 +111,15 @@ def complete_text(
     timeout_seconds: int = 180,
     api_key: str | None = None,
     base_url: str | None = None,
+    thinking: bool = True,
 ) -> str:
     """Run a single Claude completion and return the response text.
 
     Accepts OpenAI-style messages (a leading {"role": "system", ...} is pulled
     out into the Anthropic ``system`` parameter). Adaptive thinking is requested
-    by default and gracefully skipped if the configured model rejects it.
+    by default and gracefully skipped if the configured model rejects it. Pass
+    ``thinking=False`` for small, schema-bound calls (e.g. the skill planner)
+    where extended thinking only adds latency.
     """
     client = _build_client(api_key, base_url, timeout_seconds)
     system_text, convo = _split_messages(messages)
@@ -127,6 +130,10 @@ def complete_text(
     }
     if system_text:
         request["system"] = system_text
+
+    if not thinking:
+        response = client.messages.create(**request)
+        return _text_from_response(response)
 
     try:
         response = client.messages.create(thinking={"type": "adaptive"}, **request)

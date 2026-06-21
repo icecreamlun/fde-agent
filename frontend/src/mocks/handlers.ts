@@ -275,7 +275,7 @@ export const handlers = [
   ),
   http.get('/api/skills', () => HttpResponse.json(currentSkills())),
   http.get('/api/workflows', () => HttpResponse.json(WORKFLOWS)),
-  http.post('/api/recommendations/:id/accept', ({ params }) => {
+  http.post('/api/recommendations/:id/accept/stream', ({ params }) => {
     const id = String(params.id)
     accepted.add(id)
     const rec = RECOMMENDATIONS.find(r => r.id === id)
@@ -291,4 +291,61 @@ export const handlers = [
       planner: 'anthropic',
     })
   }),
+  http.get('/api/memory/status', () =>
+    HttpResponse.json({
+      backend: 'hydradb',
+      tenant_id: 'default-tenant',
+      sub_tenant_id: 'controller',
+      hydra_configured: true,
+      error: null,
+    }),
+  ),
+  http.post('/api/skills/:id/feedback', async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { rating?: string; note?: string }
+    return HttpResponse.json({
+      status: 'ok',
+      skill_id: String(params.id),
+      rating: body.rating ?? 'up',
+      note: body.note ?? '',
+      backend: 'hydradb',
+      hydra_status: 'queued',
+    })
+  }),
+  http.post('/api/skills/:id/run', ({ params }) =>
+    HttpResponse.json({
+      status: 'executed',
+      skill_id: String(params.id),
+      match_id: 'match_demo',
+      memory: {
+        backend: 'hydradb',
+        recalled: ['tx-1004 (Amount variance) is a known recurring timing difference — treat as Matched.'],
+        auto_resolved: [{ transaction_id: 'tx-1004', applied: 'tx-1004 is a known recurring timing difference — treat as Matched.' }],
+        exceptions_before: 1,
+        exceptions_after: 0,
+      },
+      artifacts: {
+        workbook: 'workspace/workbooks/generated/cash_recon_2026_06_15_reconciled.xlsx',
+        workbook_url: '/api/files/workspace/workbooks/generated/cash_recon_2026_06_15_reconciled.xlsx',
+        draft: 'workspace/mail/drafts/cash_recon_2026_06_15_reply.eml',
+        draft_url: '/api/files/workspace/mail/drafts/cash_recon_2026_06_15_reply.eml',
+        matched_count: 4,
+        exception_count: 0,
+      },
+    }),
+  ),
+  http.get('/api/memory/trace', () =>
+    HttpResponse.json([
+      { ts: '2026-06-21T19:11:26', op: 'apply', backend: 'hydradb', auto_resolved: 1, exceptions_before: 1, exceptions_after: 0 },
+      {
+        ts: '2026-06-21T19:11:26',
+        op: 'recall',
+        backend: 'hydradb',
+        query: 'reconciliation corrections and standing rules to apply when running the skill',
+        hits: 1,
+        from_hydra: 1,
+        top: [{ text: 'tx-1004 is a known recurring timing difference — treat as Matched.', score: 1.46, source: 'hydradb' }],
+      },
+      { ts: '2026-06-21T19:11:25', op: 'write', backend: 'hydradb', rating: 'up', stored: 'Reviewer feedback: tx-1004 is a known recurring timing difference — treat as Matched.', hydra_status: 'queued' },
+    ]),
+  ),
 ]
